@@ -1,0 +1,180 @@
+/* Custom styling for Prediction League App */
+
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --success: #16a34a;
+  --danger: #dc2626;
+  --warning: #d97706;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  background-color: #0b0f19;
+  color: #f1f5f9;
+  min-height: 100vh;
+  -webkit-tap-highlight-color: transparent;
+  padding-bottom: env(safe-area-inset-bottom, 1rem);
+}
+
+/* Prevent auto-zoom on mobile inputs in Safari iOS */
+@media screen and (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Glassmorphism panels */
+.glass-panel {
+  background: rgba(17, 24, 39, 0.85);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.5);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.8);
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Spinners */
+@keyframes spin-fast {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: spin-fast 0.6s linear infinite;
+}
+
+.spinner-sm {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: spin-fast 0.6s linear infinite;
+  display: inline-block;
+}
+
+.spinner-md {
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin-fast 0.6s linear infinite;
+  display: inline-block;
+}
+
+.spinner-lg {
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 4px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #818cf8;
+  border-radius: 50%;
+  animation: spin-fast 0.7s linear infinite;
+  display: inline-block;
+}
+
+/* Modal and Bottom Sheet Animations */
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-content-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.modal-backdrop-animate {
+  animation: modal-backdrop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.modal-content-animate {
+  animation: modal-content-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@media (max-width: 640px) {
+  .modal-content-animate {
+    animation: sheet-up 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+}
+
+/* Sticky first columns in mobile table */
+@media (max-width: 640px) {
+  .sticky-col-1 {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background-color: #0b0f19;
+  }
+  .sticky-col-2 {
+    position: sticky;
+    left: 48px;
+    z-index: 10;
+    background-color: #0b0f19;
+  }
+}
+
+/* Toast popup */
+#toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast {
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  color: #fff;
+  padding: 0.75rem 1.25rem;
+  border-radius: 9999px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px -3px rgba(99, 102, 241, 0.3);
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation: modal-content-in 0.2s ease-out;
+}
