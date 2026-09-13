@@ -238,7 +238,21 @@ function setupEventListeners() {
         modalCurrentCategory = cat;
         updateModalCategoryFilterUI();
         if (currentUserProfileData) {
+          // If the currently selected round does not belong to the selected category,
+          // switch to the best matching round in this category (active round or latest)
+          const matchingRounds = (currentUserProfileData.round_scores || []).filter(rs => {
+            if (cat === 'all') return true;
+            return getRoundCategory(rs.round_name) === cat;
+          });
+          if (matchingRounds.length > 0) {
+            const currentStillMatches = matchingRounds.some(rs => rs.round_id === selectedModalRound);
+            if (!currentStillMatches) {
+              const activeInCat = matchingRounds.find(rs => rs.status === 'active' || rs.round_id === 'r6');
+              selectedModalRound = activeInCat ? activeInCat.round_id : matchingRounds[matchingRounds.length - 1].round_id;
+            }
+          }
           renderUserProfileRoundCards(currentUserProfileData);
+          renderRoundPredictions(selectedModalRound);
         }
       }
     });
@@ -260,18 +274,6 @@ function setupEventListeners() {
         if (toggleRoundsIcon) toggleRoundsIcon.classList.remove('rotate-180');
       }
       if (window.lucide) lucide.createIcons();
-    });
-  }
-
-  // Modal round prediction tabs
-  if (modalRoundTabs) {
-    modalRoundTabs.addEventListener('click', (e) => {
-      const btn = e.target.closest('.modal-round-tab-btn');
-      if (!btn) return;
-      const round = btn.getAttribute('data-round');
-      if (round && currentUserProfileData) {
-        switchModalRound(round);
-      }
     });
   }
 }
@@ -652,7 +654,6 @@ function renderUserProfile(user) {
 
   updateModalCategoryFilterUI();
   renderUserProfileRoundCards(user);
-  renderModalRoundTabs();
   renderRoundPredictions(selectedModalRound);
 }
 
@@ -685,7 +686,8 @@ function renderUserProfileRoundCards(user) {
       statusText = hasPreds ? 'Picks Submitted' : 'Pending Picks';
       statusClass = hasPreds ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' : 'text-amber-400 bg-amber-500/10';
     } else if (hasPreds) {
-      statusText = 'Picks & Results';
+      const correct = user.round_predictions[rs.round_id].filter(p => p.correct).length;
+      statusText = `${correct}/${user.round_predictions[rs.round_id].length} correct`;
       statusClass = 'text-emerald-400 bg-emerald-500/10';
     } else if (rs.participated || rs.score !== null) {
       statusText = 'Score Logged';
@@ -699,7 +701,7 @@ function renderUserProfileRoundCards(user) {
     return `
       <div onclick="switchModalRound('${rs.round_id}')" 
            class="p-3 rounded-xl border ${activeClasses} space-y-1 transition cursor-pointer active:scale-[0.97] select-none"
-           title="Click to view ${rs.round_name}">
+           title="Click to view ${rs.round_name} predictions">
         <div class="flex items-center justify-between gap-1">
           <span class="text-[10px] sm:text-[11px] font-semibold ${isSelected ? 'text-indigo-200' : 'text-slate-400'} truncate">${rs.round_name}</span>
           ${isCurrent ? '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Active Round"></span>' : ''}
@@ -719,48 +721,9 @@ function switchModalRound(roundId) {
   if (!currentUserProfileData) return;
   selectedModalRound = roundId;
   renderUserProfileRoundCards(currentUserProfileData);
-  renderModalRoundTabs();
   renderRoundPredictions(selectedModalRound);
 }
 window.switchModalRound = switchModalRound;
-
-function renderModalRoundTabs() {
-  if (!modalRoundTabs || !currentUserProfileData) return;
-  const user = currentUserProfileData;
-  const allRounds = (globalData && globalData.rounds) || [];
-
-  modalRoundTabs.innerHTML = allRounds.map(rd => {
-    const isSelected = selectedModalRound === rd.id;
-    const preds = (user.round_predictions && user.round_predictions[rd.id]) || [];
-    const hasPreds = preds.length > 0;
-    const userScoreObj = (user.round_scores && user.round_scores.find(s => s.round_id === rd.id));
-    const scoreVal = userScoreObj ? userScoreObj.score : null;
-
-    let badgeText = '';
-    if (rd.status === 'active') {
-      badgeText = hasPreds ? 'Picks Submitted' : 'Pending';
-    } else if (hasPreds) {
-      const correct = preds.filter(p => p.correct).length;
-      badgeText = `${correct}/${preds.length} pts`;
-    } else if (scoreVal !== null && scoreVal !== undefined) {
-      badgeText = `${scoreVal} pts`;
-    } else {
-      badgeText = '—';
-    }
-
-    const shortLabel = getShortRoundLabel(rd.name) || rd.name;
-    const baseClass = isSelected 
-      ? 'modal-round-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 shrink-0 transition flex items-center gap-1.5 active:scale-95'
-      : 'modal-round-tab-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700/60 shrink-0 transition flex items-center gap-1.5 active:scale-95';
-
-    return `
-      <button class="${baseClass}" data-round="${rd.id}" title="${rd.name}">
-        <span>${shortLabel}</span>
-        <span class="text-[10px] px-1.5 py-0.2 rounded font-mono ${isSelected ? 'bg-indigo-700/80 text-indigo-100' : 'bg-slate-900/60 text-slate-400'}">${badgeText}</span>
-      </button>
-    `;
-  }).join('');
-}
 
 function renderRoundPredictions(roundId) {
   if (!currentUserProfileData) return;
@@ -781,53 +744,90 @@ function renderRoundPredictions(roundId) {
     profilePredictionsTitle.textContent = `${roundDisplayName} Predictions`;
   }
 
-  const userScoreObj = (user.round_scores && user.round_scores.find(s => s.round_id === roundId));
-  const userScore = userScoreObj ? userScoreObj.score : null;
-
   if (preds.length === 0) {
-    const roundStandings = (globalData && globalData.round_standings && globalData.round_standings[roundId]) || [];
-    const standingEntry = roundStandings.find(s => s.username.toLowerCase() === user.username.toLowerCase());
-    const roundRank = standingEntry ? standingEntry.rank : null;
-
-    if (roundStatus === 'active') {
-      profileR5SummaryBadge.textContent = 'No picks submitted yet';
-      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium whitespace-nowrap';
-    } else if (userScore !== null) {
-      profileR5SummaryBadge.textContent = `Score: ${userScore} pts ${roundRank ? `(Rank #${roundRank})` : ''}`;
-      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-medium whitespace-nowrap';
-    } else {
-      profileR5SummaryBadge.textContent = 'Not participated';
-      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-medium whitespace-nowrap';
-    }
+    profileR5SummaryBadge.textContent = 'No picks submitted';
+    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-medium whitespace-nowrap';
 
     profilePredictionsContainer.innerHTML = `
-      <div class="p-6 sm:p-8 text-center space-y-4">
-        <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-          <i data-lucide="${userScore !== null ? 'award' : 'calendar'}" class="w-6 h-6"></i>
-        </div>
-        <div class="space-y-1">
-          <h5 class="text-sm sm:text-base font-bold text-white">${roundDisplayName} Score Summary</h5>
-          <p class="text-xs sm:text-sm text-slate-300">
-            ${userScore !== null ? `Logged score: <strong class="text-emerald-400 font-mono">${userScore} pts</strong>` : 'No score recorded for this participant.'}
-            ${roundRank ? ` &middot; Ranked <strong class="text-indigo-400 font-mono">#${roundRank}</strong> in round` : ''}
-          </p>
-        </div>
-        <p class="text-[11px] sm:text-xs text-slate-400 max-w-md mx-auto">
-          ${roundStatus === 'active' 
-            ? 'Predictions for this round have not been submitted by this participant.' 
-            : 'Match-by-match individual picks were managed in the tournament master Google Sheet for this round. Google Forms picks tracking started in Round 5 (UCL MD1).'}
-        </p>
-        <div class="pt-1">
-          <button onclick="goToRoundTable('${roundId}')" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition active:scale-95">
-            <i data-lucide="list-ordered" class="w-4 h-4"></i>
-            <span>View Standings Table for ${getShortRoundLabel(roundDisplayName) || roundDisplayName}</span>
-          </button>
-        </div>
+      <div class="p-8 text-center space-y-2">
+        <i data-lucide="help-circle" class="w-8 h-8 text-slate-600 mx-auto mb-1"></i>
+        <p class="text-xs sm:text-sm font-medium text-slate-300">No predictions submitted for ${roundDisplayName}.</p>
+        <p class="text-[11px] text-slate-500">${user.username} did not submit picks for this round.</p>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
     return;
   }
+
+  const isPending = preds.every(p => p.correct === null);
+  if (isPending) {
+    profileR5SummaryBadge.textContent = `${preds.length} picks submitted (Awaiting Results)`;
+    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium whitespace-nowrap';
+  } else {
+    const correctCount = preds.filter(p => p.correct).length;
+    profileR5SummaryBadge.textContent = `${correctCount} / ${preds.length} correct (+${correctCount} pts)`;
+    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium whitespace-nowrap';
+  }
+
+  const outcomeShort = {
+    'Home': '1 (Home)',
+    'Away': '2 (Away)',
+    'Draw': 'X (Draw)'
+  };
+
+  profilePredictionsContainer.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="w-full text-left text-xs">
+        <thead class="bg-slate-900/90 text-[10px] sm:text-[11px] text-slate-400 uppercase tracking-wider border-b border-slate-800 font-semibold sticky top-0">
+          <tr>
+            <th class="py-2.5 px-3 sm:px-4 w-8 font-mono">#</th>
+            <th class="py-2.5 px-3 sm:px-4">Match</th>
+            <th class="py-2.5 px-3 sm:px-4">Pick</th>
+            <th class="py-2.5 px-3 sm:px-4 hidden sm:table-cell">Result</th>
+            <th class="py-2.5 px-3 sm:px-4 text-right">Points</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-800/60">
+          ${preds.map((p, idx) => {
+            let badge = '';
+            if (p.correct === true) {
+              badge = `<span class="inline-flex items-center gap-0.5 text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 text-[11px]">
+                         <i data-lucide="check" class="w-3 h-3"></i> +1
+                       </span>`;
+            } else if (p.correct === false) {
+              badge = `<span class="inline-flex items-center gap-0.5 text-rose-400 font-medium bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 text-[11px]">
+                         <i data-lucide="x" class="w-3 h-3"></i> 0
+                       </span>`;
+            } else {
+              badge = `<span class="inline-flex items-center text-slate-400 bg-slate-800 px-2 py-0.5 rounded text-[11px]">
+                         Pending
+                       </span>`;
+            }
+
+            return `
+              <tr class="hover:bg-slate-800/40 transition">
+                <td class="py-2.5 px-3 sm:px-4 text-slate-500 font-mono text-[11px]">${idx + 1}</td>
+                <td class="py-2.5 px-3 sm:px-4 text-white font-medium text-xs">
+                  <div>${p.match}</div>
+                  <div class="text-[10px] text-slate-400 sm:hidden mt-0.5">Result: ${outcomeShort[p.actual] || p.actual || '<span class="text-slate-500 italic">Pending</span>'}</div>
+                </td>
+                <td class="py-2.5 px-3 sm:px-4 font-semibold text-indigo-300 text-xs whitespace-nowrap">
+                  ${outcomeShort[p.prediction] || p.prediction}
+                </td>
+                <td class="py-2.5 px-3 sm:px-4 text-slate-400 text-xs hidden sm:table-cell whitespace-nowrap">
+                  ${outcomeShort[p.actual] || p.actual || '<span class="text-slate-500 italic">Pending</span>'}
+                </td>
+                <td class="py-2.5 px-3 sm:px-4 text-right">${badge}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  if (window.lucide) lucide.createIcons();
+}
 
   const isPending = preds.every(p => p.correct === null);
   if (isPending) {

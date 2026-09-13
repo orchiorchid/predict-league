@@ -20,8 +20,8 @@ def test_sheet_service_fetch():
     assert "match_distributions" in data
     assert len(data["match_distributions"]) == 10
     assert "round_match_distributions" in data
-    assert "r5" in data["round_match_distributions"]
-    assert "r6" in data["round_match_distributions"]
+    assert all(f"r{i}" in data["round_match_distributions"] for i in range(1, 7))
+    assert all(f"r{i}" in data["round_predictions"] for i in range(1, 7))
 
 def test_case_insensitive_merging_qqq666():
     service = SheetService()
@@ -45,6 +45,7 @@ def test_case_insensitive_merging_qqq666():
     scores = {r["round_id"]: r["score"] for r in u_lower["round_scores"]}
     assert scores["r4"] == 4.0
     assert scores["r5"] == 10.0
+    assert len(u_lower["round_predictions"]["r4"]) == 10
     assert len(u_lower["r5_predictions"]) == 10
     assert all(p["correct"] is True for p in u_lower["r5_predictions"])
     assert all(p["points"] == 1 for p in u_lower["r5_predictions"])

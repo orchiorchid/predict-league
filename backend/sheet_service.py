@@ -19,6 +19,90 @@ def pick_canonical_name(variants: List[str]) -> str:
 # Master archive of historical rounds with their official match titles and outcomes.
 # This prevents upcoming rounds in Google Forms from overwriting past match titles and breakdowns.
 ARCHIVED_ROUNDS = {
+    "r1": {
+        "id": "r1",
+        "name": "Round 1 (PL MD1)",
+        "status": "completed",
+        "user_col": "A",
+        "score_col": "B",
+        "row_start": 2,
+        "row_end": 56,
+        "matches": [
+            {"title": "Arsenal vs Coventry", "code": "ARS/COV", "actual": "Home"},
+            {"title": "Hull vs Manchester United", "code": "HUL/MUN", "actual": "Home"},
+            {"title": "Everton vs Crystal Palace", "code": "EVE/CRY", "actual": "Home"},
+            {"title": "Ipswich vs Sunderland", "code": "IPS/SUN", "actual": "Home"},
+            {"title": "Nottingham Forest vs Leeds", "code": "NFO/LEE", "actual": "Away"},
+            {"title": "Brentford vs Tottenham", "code": "BRE/TOT", "actual": "Home"},
+            {"title": "Brighton vs Aston Villa", "code": "BHA/AVL", "actual": "Home"},
+            {"title": "Manchester City vs Bournemouth", "code": "MCI/BOU", "actual": "Home"},
+            {"title": "Newcastle vs Liverpool", "code": "NEW/LIV", "actual": "Draw"},
+            {"title": "Fulham vs Chelsea", "code": "FUL/CHE", "actual": "Away"},
+        ]
+    },
+    "r2": {
+        "id": "r2",
+        "name": "Round 2 (LC R2)",
+        "status": "completed",
+        "user_col": "D",
+        "score_col": "E",
+        "row_start": 57,
+        "row_end": 104,
+        "matches": [
+            {"title": "Ipswich vs Leicester", "code": "IPS/LEI", "actual": "Home"},
+            {"title": "Plymouth vs Coventry", "code": "PLY/COV", "actual": "Away"},
+            {"title": "Stoke vs Hull", "code": "STO/HUL", "actual": "Away"},
+            {"title": "Birmingham vs Brentford", "code": "BIR/BRE", "actual": "Away"},
+            {"title": "Nottingham Forest vs Leeds", "code": "NFO/LEE", "actual": "Away"},
+            {"title": "Newcastle vs West Brom", "code": "NEW/WBA", "actual": "Home"},
+            {"title": "Tottenham vs Charlton", "code": "TOT/CHA", "actual": "Home"},
+            {"title": "Preston vs Everton", "code": "PNE/EVE", "actual": "Away"},
+            {"title": "Chelsea vs Luton", "code": "CHE/LUT", "actual": "Home"},
+            {"title": "Fulham vs Wimbledon", "code": "FUL/WIM", "actual": "Home"},
+        ]
+    },
+    "r3": {
+        "id": "r3",
+        "name": "Round 3 (PL MD2)",
+        "status": "completed",
+        "user_col": "G",
+        "score_col": "H",
+        "row_start": 105,
+        "row_end": 134,
+        "matches": [
+            {"title": "Crystal Palace vs Manchester City", "code": "CRY/MCI", "actual": "Away"},
+            {"title": "Liverpool vs Nottingham Forest", "code": "LIV/NFO", "actual": "Away"},
+            {"title": "Bournemouth vs Everton", "code": "BOU/EVE", "actual": "Draw"},
+            {"title": "Coventry vs Hull", "code": "COV/HUL", "actual": "Away"},
+            {"title": "Tottenham vs Newcastle", "code": "TOT/NEW", "actual": "Away"},
+            {"title": "Chelsea vs Brighton", "code": "CHE/BHA", "actual": "Home"},
+            {"title": "Leeds vs Brentford", "code": "LEE/BRE", "actual": "Draw"},
+            {"title": "Sunderland vs Fulham", "code": "SUN/FUL", "actual": "Home"},
+            {"title": "Manchester United vs Ipswich", "code": "MUN/IPS", "actual": "Home"},
+            {"title": "Aston Villa vs Arsenal", "code": "AVL/ARS", "actual": "Away"},
+        ]
+    },
+    "r4": {
+        "id": "r4",
+        "name": "Round 4 (PL MD3)",
+        "status": "completed",
+        "user_col": "J",
+        "score_col": "K",
+        "row_start": 135,
+        "row_end": 174,
+        "matches": [
+            {"title": "Ipswich vs Liverpool", "code": "IPS/LIV", "actual": "Away"},
+            {"title": "Newcastle vs Bournemouth", "code": "NEW/BOU", "actual": "Draw"},
+            {"title": "Nottingham Forest vs Tottenham", "code": "NFO/TOT", "actual": "Draw"},
+            {"title": "Fulham vs Crystal Palace", "code": "FUL/CRY", "actual": "Away"},
+            {"title": "Manchester City vs Coventry", "code": "MCI/COV", "actual": "Home"},
+            {"title": "Brentford vs Sunderland", "code": "BRE/SUN", "actual": "Draw"},
+            {"title": "Brighton vs Leeds", "code": "BHA/LEE", "actual": "Draw"},
+            {"title": "Hull vs Aston Villa", "code": "HUL/AVL", "actual": "Draw"},
+            {"title": "Everton vs Manchester United", "code": "EVE/MUN", "actual": "Draw"},
+            {"title": "Arsenal vs Chelsea", "code": "ARS/CHE", "actual": "Home"},
+        ]
+    },
     "r5": {
         "id": "r5",
         "name": "Round 5 (UCL MD1)",
@@ -38,27 +122,6 @@ ARCHIVED_ROUNDS = {
             {"title": "PSG vs Slovan Bratislava", "code": "PSG/SLB", "actual": "Home"},
             {"title": "Bayern Munich vs Bodo/Glimt", "code": "BAY/BOD", "actual": "Home"},
             {"title": "Manchester United vs Sabah", "code": "MUN/SAB", "actual": "Home"},
-        ]
-    },
-    "r4": {
-        "id": "r4",
-        "name": "Round 4 (PL MD3)",
-        "status": "completed",
-        "user_col": "J",
-        "score_col": "K",
-        "row_start": 135,
-        "row_end": 174,
-        "matches": [
-            {"title": "Ipswich vs Liverpool", "code": "IPS/LIV", "actual": None},
-            {"title": "Newcastle vs Bournemouth", "code": "NEW/BOU", "actual": None},
-            {"title": "Nottingham Forest vs Tottenham", "code": "NFO/TOT", "actual": None},
-            {"title": "Fulham vs Crystal Palace", "code": "FUL/CRY", "actual": None},
-            {"title": "Manchester City vs Coventry", "code": "MCI/COV", "actual": None},
-            {"title": "Brentford vs Sunderland", "code": "BRE/SUN", "actual": None},
-            {"title": "Brighton vs Leeds", "code": "BHA/LEE", "actual": None},
-            {"title": "Hull vs Aston Villa", "code": "HUL/AVL", "actual": None},
-            {"title": "Everton vs Manchester United", "code": "EVE/MUN", "actual": None},
-            {"title": "Arsenal vs Chelsea", "code": "ARS/CHE", "actual": None},
         ]
     }
 }
@@ -208,58 +271,59 @@ class SheetService:
         round_predictions: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(dict)
         round_distributions: Dict[str, List[Dict[str, Any]]] = {}
 
-        # 4A. Parse Round 5 (UCL MD1) predictions (rows 175 to 212)
-        r5_matches = ARCHIVED_ROUNDS["r5"]["matches"]
-        r5_votes = {m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": m["actual"]} for m in r5_matches}
+        # 4A. Parse Historical Rounds predictions (R1, R2, R3, R4, R5)
+        for r_id, r_meta in ARCHIVED_ROUNDS.items():
+            r_matches = r_meta["matches"]
+            r_votes = {m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": m["actual"]} for m in r_matches}
 
-        for r_num in range(175, 213):
-            row = form_rows.get(r_num, {})
-            u = row.get("B", "").strip()
-            if not u:
-                continue
-            k = register_user(u)
+            for r_num in range(r_meta["row_start"], r_meta["row_end"] + 1):
+                row = form_rows.get(r_num, {})
+                u = row.get("B", "").strip()
+                if not u or u in ["Home", "Draw", "Away"]:
+                    continue
+                k = register_user(u)
 
-            user_preds = []
-            for idx, m_col in enumerate(match_cols):
-                if idx >= len(r5_matches):
-                    break
-                m = r5_matches[idx]
-                pred_val = row.get(m_col, "").strip()
-                actual_val = m["actual"]
-                is_correct = bool(pred_val and actual_val and pred_val.lower() == actual_val.lower())
-                point = 1 if is_correct else 0
+                user_preds = []
+                for idx, m_col in enumerate(match_cols):
+                    if idx >= len(r_matches):
+                        break
+                    m = r_matches[idx]
+                    pred_val = row.get(m_col, "").strip()
+                    actual_val = m["actual"]
+                    is_correct = bool(pred_val and actual_val and pred_val.lower() == actual_val.lower())
+                    point = 1 if is_correct else 0
 
-                if pred_val in r5_votes[m["title"]]:
-                    r5_votes[m["title"]][pred_val] += 1
-                    r5_votes[m["title"]]["Total"] += 1
+                    if pred_val in r_votes[m["title"]]:
+                        r_votes[m["title"]][pred_val] += 1
+                        r_votes[m["title"]]["Total"] += 1
 
-                user_preds.append({
+                    user_preds.append({
+                        "match": m["title"],
+                        "prediction": pred_val,
+                        "actual": actual_val,
+                        "correct": is_correct,
+                        "points": point
+                    })
+
+                round_predictions[r_id][k] = user_preds
+
+            # Build round distributions
+            r_dist = []
+            for m in r_matches:
+                stats = r_votes[m["title"]]
+                tot = stats["Total"] if stats["Total"] > 0 else 1
+                r_dist.append({
                     "match": m["title"],
-                    "prediction": pred_val,
-                    "actual": actual_val,
-                    "correct": is_correct,
-                    "points": point
+                    "actual": stats["actual"],
+                    "home": stats["Home"],
+                    "draw": stats["Draw"],
+                    "away": stats["Away"],
+                    "total": stats["Total"],
+                    "home_pct": round((stats["Home"] / tot) * 100, 1),
+                    "draw_pct": round((stats["Draw"] / tot) * 100, 1),
+                    "away_pct": round((stats["Away"] / tot) * 100, 1)
                 })
-
-            round_predictions["r5"][k] = user_preds
-
-        # Build R5 distributions
-        r5_dist = []
-        for m in r5_matches:
-            stats = r5_votes[m["title"]]
-            tot = stats["Total"] if stats["Total"] > 0 else 1
-            r5_dist.append({
-                "match": m["title"],
-                "actual": stats["actual"],
-                "home": stats["Home"],
-                "draw": stats["Draw"],
-                "away": stats["Away"],
-                "total": stats["Total"],
-                "home_pct": round((stats["Home"] / tot) * 100, 1),
-                "draw_pct": round((stats["Draw"] / tot) * 100, 1),
-                "away_pct": round((stats["Away"] / tot) * 100, 1)
-            })
-        round_distributions["r5"] = r5_dist
+            round_distributions[r_id] = r_dist
 
         # 4B. Parse Round 6 (PL MD4) predictions (rows 213+)
         r6_votes = {m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": None} for m in active_matches}
