@@ -2,10 +2,13 @@
 
 let globalData = null;
 let currentTab = 'overall';
+let currentCategory = 'all'; // 'all', 'PL', 'UCL', 'CUP'
 let currentDistRound = 'r6';
 let selectedUser = null;
 let currentUserProfileData = null;
 let selectedModalRound = 'r6';
+let modalCurrentCategory = 'all'; // 'all', 'PL', 'UCL', 'CUP'
+let isModalRoundsExpanded = false;
 let lastSyncTimestamp = null;
 
 // DOM Elements
@@ -23,6 +26,15 @@ const searchClear = document.getElementById('search-clear');
 const searchSpinner = document.getElementById('search-spinner');
 const autocompleteList = document.getElementById('autocomplete-list');
 const quickChips = document.getElementById('quick-chips');
+
+// Navigation & Category Elements
+const roundJumpSelect = document.getElementById('round-jump-select');
+const tournamentCategoryFilters = document.getElementById('tournament-category-filters');
+const modalCatFilters = document.getElementById('modal-cat-filters');
+const toggleAllRoundsBtn = document.getElementById('toggle-all-rounds-btn');
+const modalRoundsWrapper = document.getElementById('modal-rounds-wrapper');
+const toggleRoundsText = document.getElementById('toggle-rounds-text');
+const toggleRoundsIcon = document.getElementById('toggle-rounds-icon');
 
 // Modal Elements
 const userModal = document.getElementById('user-modal');
@@ -170,6 +182,33 @@ function setupEventListeners() {
     }
   });
 
+  // Tournament Category Filters (All, PL, UCL, Cups)
+  if (tournamentCategoryFilters) {
+    tournamentCategoryFilters.addEventListener('click', (e) => {
+      const btn = e.target.closest('.cat-filter-btn');
+      if (!btn) return;
+      const cat = btn.getAttribute('data-cat');
+      if (cat && cat !== currentCategory) {
+        currentCategory = cat;
+        updateCategoryFilterUI();
+        renderTabsNavigation();
+        renderLeaderboardTable();
+      }
+    });
+  }
+
+  // Quick Jump Select dropdown for 50+ rounds
+  if (roundJumpSelect) {
+    roundJumpSelect.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val) {
+        currentTab = val;
+        updateActiveTabUI();
+        renderLeaderboardTable();
+      }
+    });
+  }
+
   // Table filter
   tableFilterInput.addEventListener('input', () => {
     renderLeaderboardTable();
@@ -189,16 +228,49 @@ function setupEventListeners() {
     });
   }
 
+  // Modal Category Filters (All, PL, UCL, Cups)
+  if (modalCatFilters) {
+    modalCatFilters.addEventListener('click', (e) => {
+      const btn = e.target.closest('.mcat-btn');
+      if (!btn) return;
+      const cat = btn.getAttribute('data-mcat');
+      if (cat && cat !== modalCurrentCategory) {
+        modalCurrentCategory = cat;
+        updateModalCategoryFilterUI();
+        if (currentUserProfileData) {
+          renderUserProfileRoundCards(currentUserProfileData);
+        }
+      }
+    });
+  }
+
+  // Modal Accordion toggle button (Expand all cards / Collapse)
+  if (toggleAllRoundsBtn && modalRoundsWrapper) {
+    toggleAllRoundsBtn.addEventListener('click', () => {
+      isModalRoundsExpanded = !isModalRoundsExpanded;
+      if (isModalRoundsExpanded) {
+        modalRoundsWrapper.classList.remove('max-h-[175px]', 'sm:max-h-[220px]');
+        modalRoundsWrapper.classList.add('max-h-[600px]');
+        if (toggleRoundsText) toggleRoundsText.textContent = 'Collapse';
+        if (toggleRoundsIcon) toggleRoundsIcon.classList.add('rotate-180');
+      } else {
+        modalRoundsWrapper.classList.remove('max-h-[600px]');
+        modalRoundsWrapper.classList.add('max-h-[175px]', 'sm:max-h-[220px]');
+        if (toggleRoundsText) toggleRoundsText.textContent = 'Expand All';
+        if (toggleRoundsIcon) toggleRoundsIcon.classList.remove('rotate-180');
+      }
+      if (window.lucide) lucide.createIcons();
+    });
+  }
+
   // Modal round prediction tabs
   if (modalRoundTabs) {
     modalRoundTabs.addEventListener('click', (e) => {
       const btn = e.target.closest('.modal-round-tab-btn');
       if (!btn) return;
       const round = btn.getAttribute('data-round');
-      if (round && round !== selectedModalRound && currentUserProfileData) {
-        selectedModalRound = round;
-        renderModalRoundTabs();
-        renderRoundPredictions(selectedModalRound);
+      if (round && currentUserProfileData) {
+        switchModalRound(round);
       }
     });
   }
@@ -262,6 +334,7 @@ async function loadData(force = false) {
     syncDot.classList.remove('hidden');
     updateRelativeSyncTime();
 
+    renderTabsNavigation();
     renderQuickChips();
     renderLeaderboardTable();
     renderMatchDistributions();
@@ -289,6 +362,124 @@ function updateRelativeSyncTime() {
     text = `${diffSec}s ago`;
   }
   syncStatusEl.textContent = `Updated: ${text}`;
+}
+
+// ==========================================
+// Tournament Round & Category Helpers
+// ==========================================
+function getRoundCategory(roundName) {
+  if (!roundName) return 'PL';
+  const n = roundName.toUpperCase();
+  if (n.includes('UCL') || n.includes('CHAMPIONS') || n.includes('CL ')) return 'UCL';
+  if (n.includes('LC') || n.includes('CUP') || n.includes('FA') || n.includes('1/16') || n.includes('1/8') || n.includes('1/4') || n.includes('SEMI') || n.includes('FINAL')) return 'CUP';
+  return 'PL';
+}
+
+function getShortRoundLabel(roundName) {
+  if (!roundName) return '';
+  const mPl = roundName.match(/PL\s*MD(\d+)/i);
+  if (mPl) return `PL ${mPl[1]}`;
+  const mUcl = roundName.match(/UCL\s*MD(\d+)/i);
+  if (mUcl) return `CL ${mUcl[1]}`;
+  const mLc = roundName.match(/LC\s*R?(\d+)/i);
+  if (mLc) return `LC ${mLc[1]}`;
+  const mFa = roundName.match(/FA\s*R?(\d+)/i);
+  if (mFa) return `FA ${mFa[1]}`;
+  const mR = roundName.match(/Round\s*(\d+)/i);
+  if (mR) return `R${mR[1]}`;
+  return roundName.length > 7 ? roundName.slice(0, 6) : roundName;
+}
+
+function updateCategoryFilterUI() {
+  if (!tournamentCategoryFilters) return;
+  tournamentCategoryFilters.querySelectorAll('.cat-filter-btn').forEach(btn => {
+    const cat = btn.getAttribute('data-cat');
+    if (cat === currentCategory) {
+      btn.className = 'cat-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-sm shrink-0 active:scale-95 transition';
+    } else {
+      btn.className = 'cat-filter-btn px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800/90 text-slate-400 hover:text-white border border-slate-700/60 shrink-0 active:scale-95 transition';
+    }
+  });
+}
+
+function updateModalCategoryFilterUI() {
+  if (!modalCatFilters) return;
+  modalCatFilters.querySelectorAll('.mcat-btn').forEach(btn => {
+    const cat = btn.getAttribute('data-mcat');
+    if (cat === modalCurrentCategory) {
+      btn.className = 'mcat-btn px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-600 text-white shrink-0 active:scale-95 transition';
+    } else {
+      btn.className = 'mcat-btn px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 hover:text-white shrink-0 active:scale-95 transition';
+    }
+  });
+}
+
+function renderTabsNavigation() {
+  if (!globalData || !tabsContainer) return;
+
+  const rounds = (globalData.rounds || []).filter(r => {
+    if (currentCategory === 'all') return true;
+    return getRoundCategory(r.name) === currentCategory;
+  });
+
+  // Render buttons in tabsContainer
+  let html = `
+    <button data-tab="overall" class="tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${currentTab === 'overall' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50'} shrink-0">
+      <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+      <span>Overall Standings</span>
+    </button>
+  `;
+
+  rounds.forEach(rd => {
+    const isActive = rd.id === currentTab;
+    const isRoundLive = rd.status === 'active';
+    const shortLabel = getShortRoundLabel(rd.name);
+    const liveDot = isRoundLive ? '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>' : '';
+    html += `
+      <button data-tab="${rd.id}" title="${rd.name}" class="tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50'} shrink-0">
+        ${liveDot}
+        <span>${shortLabel || rd.name}</span>
+      </button>
+    `;
+  });
+
+  tabsContainer.innerHTML = html;
+
+  // Populate roundJumpSelect
+  if (roundJumpSelect) {
+    let selectHtml = `<option value="overall" ${currentTab === 'overall' ? 'selected' : ''}>🏆 Overall Standings</option>`;
+    
+    const allRounds = globalData.rounds || [];
+    const plRounds = allRounds.filter(r => getRoundCategory(r.name) === 'PL');
+    const uclRounds = allRounds.filter(r => getRoundCategory(r.name) === 'UCL');
+    const cupRounds = allRounds.filter(r => getRoundCategory(r.name) === 'CUP');
+
+    if (plRounds.length > 0) {
+      selectHtml += `<optgroup label="⚽ Premier League">`;
+      plRounds.forEach(r => {
+        selectHtml += `<option value="${r.id}" ${currentTab === r.id ? 'selected' : ''}>${r.status === 'active' ? '🟢 ' : ''}${r.name}</option>`;
+      });
+      selectHtml += `</optgroup>`;
+    }
+    if (uclRounds.length > 0) {
+      selectHtml += `<optgroup label="🌟 Champions League">`;
+      uclRounds.forEach(r => {
+        selectHtml += `<option value="${r.id}" ${currentTab === r.id ? 'selected' : ''}>${r.status === 'active' ? '🟢 ' : ''}${r.name}</option>`;
+      });
+      selectHtml += `</optgroup>`;
+    }
+    if (cupRounds.length > 0) {
+      selectHtml += `<optgroup label="🏆 Cups">`;
+      cupRounds.forEach(r => {
+        selectHtml += `<option value="${r.id}" ${currentTab === r.id ? 'selected' : ''}>${r.status === 'active' ? '🟢 ' : ''}${r.name}</option>`;
+      });
+      selectHtml += `</optgroup>`;
+    }
+
+    roundJumpSelect.innerHTML = selectHtml;
+  }
+
+  if (window.lucide) lucide.createIcons();
 }
 
 // ==========================================
@@ -436,54 +627,82 @@ function renderUserProfile(user) {
   // Medal
   if (user.rank === 1) {
     profileMedal.textContent = '🥇 Champion';
-    profileMedal.className = 'text-amber-400 text-xs sm:text-sm font-bold flex items-center gap-1';
+    profileMedal.className = 'text-amber-400 text-xs sm:text-sm font-bold flex items-center gap-1 whitespace-nowrap';
     profileMedal.classList.remove('hidden');
   } else if (user.rank === 2) {
     profileMedal.textContent = '🥈 Runner-up';
-    profileMedal.className = 'text-slate-300 text-xs sm:text-sm font-bold flex items-center gap-1';
+    profileMedal.className = 'text-slate-300 text-xs sm:text-sm font-bold flex items-center gap-1 whitespace-nowrap';
     profileMedal.classList.remove('hidden');
   } else if (user.rank === 3) {
     profileMedal.textContent = '🥉 3rd Place';
-    profileMedal.className = 'text-amber-600 text-xs sm:text-sm font-bold flex items-center gap-1';
+    profileMedal.className = 'text-amber-600 text-xs sm:text-sm font-bold flex items-center gap-1 whitespace-nowrap';
     profileMedal.classList.remove('hidden');
   } else {
     profileMedal.classList.add('hidden');
   }
 
   // Choose default round to display in predictions:
-  // If user submitted for Round 6, show Round 6. If not but submitted for Round 5, show Round 5.
   if (user.round_predictions && user.round_predictions['r6'] && user.round_predictions['r6'].length > 0) {
     selectedModalRound = 'r6';
   } else if (user.round_predictions && user.round_predictions['r5'] && user.round_predictions['r5'].length > 0) {
     selectedModalRound = 'r5';
   } else {
-    selectedModalRound = 'r6';
+    selectedModalRound = (globalData && globalData.active_round_id) || 'r6';
   }
 
-  // Render tournament round cards
-  profileRoundsGrid.innerHTML = user.round_scores.map(rs => {
-    const isCurrent = rs.round_id === 'r6';
+  updateModalCategoryFilterUI();
+  renderUserProfileRoundCards(user);
+  renderModalRoundTabs();
+  renderRoundPredictions(selectedModalRound);
+}
+
+function renderUserProfileRoundCards(user) {
+  if (!profileRoundsGrid || !user || !user.round_scores) return;
+
+  const filteredRounds = user.round_scores.filter(rs => {
+    if (modalCurrentCategory === 'all') return true;
+    return getRoundCategory(rs.round_name) === modalCurrentCategory;
+  });
+
+  if (filteredRounds.length === 0) {
+    profileRoundsGrid.innerHTML = `
+      <div class="col-span-full p-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
+        No rounds found in category "${modalCurrentCategory}".
+      </div>
+    `;
+    return;
+  }
+
+  profileRoundsGrid.innerHTML = filteredRounds.map(rs => {
+    const isSelected = rs.round_id === selectedModalRound;
+    const isCurrent = rs.round_id === 'r6' || rs.status === 'active';
     const hasPreds = user.round_predictions && user.round_predictions[rs.round_id] && user.round_predictions[rs.round_id].length > 0;
     const scoreDisplay = rs.score !== null ? `${rs.score} pts` : '<span class="text-slate-500">—</span>';
     
     let statusText = 'Skipped';
     let statusClass = 'text-slate-500 bg-slate-800/40';
-    if (rs.status === 'active') {
-      statusText = hasPreds ? 'Submitted' : 'Pending';
+    if (isCurrent) {
+      statusText = hasPreds ? 'Picks Submitted' : 'Pending Picks';
       statusClass = hasPreds ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' : 'text-amber-400 bg-amber-500/10';
-    } else if (rs.participated || hasPreds) {
-      statusText = 'Participated';
+    } else if (hasPreds) {
+      statusText = 'Picks & Results';
       statusClass = 'text-emerald-400 bg-emerald-500/10';
+    } else if (rs.participated || rs.score !== null) {
+      statusText = 'Score Logged';
+      statusClass = 'text-indigo-400 bg-indigo-500/10';
     }
 
-    const clickableClass = (hasPreds || rs.round_id === 'r6' || rs.round_id === 'r5') ? 'cursor-pointer hover:border-indigo-500/60 active:scale-[0.98]' : '';
+    const activeClasses = isSelected
+      ? 'round-card-active border-indigo-500 bg-indigo-950/60 shadow-lg shadow-indigo-500/20 ring-2 ring-indigo-500/70'
+      : (isCurrent ? 'bg-indigo-950/30 border-indigo-500/40 hover:border-indigo-400' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700');
 
     return `
       <div onclick="switchModalRound('${rs.round_id}')" 
-           class="p-3 rounded-xl border ${isCurrent ? 'bg-indigo-950/40 border-indigo-500/40' : 'bg-slate-950/60 border-slate-800'} space-y-1 transition ${clickableClass}">
-        <div class="flex items-center justify-between">
-          <span class="text-[10px] sm:text-[11px] font-semibold text-slate-400 truncate">${rs.round_name}</span>
-          ${isCurrent ? '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Active Round"></span>' : ''}
+           class="p-3 rounded-xl border ${activeClasses} space-y-1 transition cursor-pointer active:scale-[0.97] select-none"
+           title="Click to view ${rs.round_name}">
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-[10px] sm:text-[11px] font-semibold ${isSelected ? 'text-indigo-200' : 'text-slate-400'} truncate">${rs.round_name}</span>
+          ${isCurrent ? '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Active Round"></span>' : ''}
         </div>
         <div class="text-lg sm:text-xl font-black font-mono ${rs.score !== null ? 'text-white' : 'text-slate-600'}">
           ${scoreDisplay}
@@ -494,48 +713,49 @@ function renderUserProfile(user) {
       </div>
     `;
   }).join('');
-
-  renderModalRoundTabs();
-  renderRoundPredictions(selectedModalRound);
 }
 
 function switchModalRound(roundId) {
-  if (roundId === 'r5' || roundId === 'r6' || (currentUserProfileData && currentUserProfileData.round_predictions && currentUserProfileData.round_predictions[roundId])) {
-    selectedModalRound = roundId;
-    renderModalRoundTabs();
-    renderRoundPredictions(selectedModalRound);
-  }
+  if (!currentUserProfileData) return;
+  selectedModalRound = roundId;
+  renderUserProfileRoundCards(currentUserProfileData);
+  renderModalRoundTabs();
+  renderRoundPredictions(selectedModalRound);
 }
+window.switchModalRound = switchModalRound;
 
 function renderModalRoundTabs() {
   if (!modalRoundTabs || !currentUserProfileData) return;
   const user = currentUserProfileData;
+  const allRounds = (globalData && globalData.rounds) || [];
 
-  const rounds = [
-    { id: 'r6', name: 'Round 6 (PL MD4)', active: true },
-    { id: 'r5', name: 'Round 5 (UCL MD1)', active: false }
-  ];
-
-  modalRoundTabs.innerHTML = rounds.map(rd => {
+  modalRoundTabs.innerHTML = allRounds.map(rd => {
     const isSelected = selectedModalRound === rd.id;
     const preds = (user.round_predictions && user.round_predictions[rd.id]) || [];
     const hasPreds = preds.length > 0;
+    const userScoreObj = (user.round_scores && user.round_scores.find(s => s.round_id === rd.id));
+    const scoreVal = userScoreObj ? userScoreObj.score : null;
 
     let badgeText = '';
-    if (rd.id === 'r6') {
+    if (rd.status === 'active') {
       badgeText = hasPreds ? 'Picks Submitted' : 'Pending';
-    } else if (rd.id === 'r5') {
+    } else if (hasPreds) {
       const correct = preds.filter(p => p.correct).length;
-      badgeText = hasPreds ? `${correct}/${preds.length} pts` : 'No picks';
+      badgeText = `${correct}/${preds.length} pts`;
+    } else if (scoreVal !== null && scoreVal !== undefined) {
+      badgeText = `${scoreVal} pts`;
+    } else {
+      badgeText = '—';
     }
 
+    const shortLabel = getShortRoundLabel(rd.name) || rd.name;
     const baseClass = isSelected 
       ? 'modal-round-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 shrink-0 transition flex items-center gap-1.5 active:scale-95'
       : 'modal-round-tab-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700/60 shrink-0 transition flex items-center gap-1.5 active:scale-95';
 
     return `
-      <button class="${baseClass}" data-round="${rd.id}">
-        <span>${rd.name}</span>
+      <button class="${baseClass}" data-round="${rd.id}" title="${rd.name}">
+        <span>${shortLabel}</span>
         <span class="text-[10px] px-1.5 py-0.2 rounded font-mono ${isSelected ? 'bg-indigo-700/80 text-indigo-100' : 'bg-slate-900/60 text-slate-400'}">${badgeText}</span>
       </button>
     `;
@@ -547,24 +767,62 @@ function renderRoundPredictions(roundId) {
   const user = currentUserProfileData;
   const preds = (user.round_predictions && user.round_predictions[roundId]) || [];
   
-  let roundDisplayName = roundId === 'r6' ? 'Round 6 (PL MD4)' : 'Round 5 (UCL MD1)';
+  let roundDisplayName = roundId;
+  let roundStatus = 'completed';
   if (globalData && globalData.rounds) {
     const rm = globalData.rounds.find(r => r.id === roundId);
-    if (rm) roundDisplayName = rm.name;
+    if (rm) {
+      roundDisplayName = rm.name;
+      roundStatus = rm.status;
+    }
   }
 
   if (profilePredictionsTitle) {
     profilePredictionsTitle.textContent = `${roundDisplayName} Predictions`;
   }
 
+  const userScoreObj = (user.round_scores && user.round_scores.find(s => s.round_id === roundId));
+  const userScore = userScoreObj ? userScoreObj.score : null;
+
   if (preds.length === 0) {
-    profileR5SummaryBadge.textContent = 'No predictions submitted';
-    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-medium';
+    const roundStandings = (globalData && globalData.round_standings && globalData.round_standings[roundId]) || [];
+    const standingEntry = roundStandings.find(s => s.username.toLowerCase() === user.username.toLowerCase());
+    const roundRank = standingEntry ? standingEntry.rank : null;
+
+    if (roundStatus === 'active') {
+      profileR5SummaryBadge.textContent = 'No picks submitted yet';
+      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium whitespace-nowrap';
+    } else if (userScore !== null) {
+      profileR5SummaryBadge.textContent = `Score: ${userScore} pts ${roundRank ? `(Rank #${roundRank})` : ''}`;
+      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-medium whitespace-nowrap';
+    } else {
+      profileR5SummaryBadge.textContent = 'Not participated';
+      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-medium whitespace-nowrap';
+    }
+
     profilePredictionsContainer.innerHTML = `
-      <div class="p-8 text-center text-xs text-slate-400 space-y-1">
-        <i data-lucide="help-circle" class="w-8 h-8 text-slate-600 mx-auto mb-2"></i>
-        <p class="font-medium text-slate-300">No predictions submitted for ${roundDisplayName}.</p>
-        <p class="text-slate-500 text-[11px]">${user.username} did not submit predictions for this round.</p>
+      <div class="p-6 sm:p-8 text-center space-y-4">
+        <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+          <i data-lucide="${userScore !== null ? 'award' : 'calendar'}" class="w-6 h-6"></i>
+        </div>
+        <div class="space-y-1">
+          <h5 class="text-sm sm:text-base font-bold text-white">${roundDisplayName} Score Summary</h5>
+          <p class="text-xs sm:text-sm text-slate-300">
+            ${userScore !== null ? `Logged score: <strong class="text-emerald-400 font-mono">${userScore} pts</strong>` : 'No score recorded for this participant.'}
+            ${roundRank ? ` &middot; Ranked <strong class="text-indigo-400 font-mono">#${roundRank}</strong> in round` : ''}
+          </p>
+        </div>
+        <p class="text-[11px] sm:text-xs text-slate-400 max-w-md mx-auto">
+          ${roundStatus === 'active' 
+            ? 'Predictions for this round have not been submitted by this participant.' 
+            : 'Match-by-match individual picks were managed in the tournament master Google Sheet for this round. Google Forms picks tracking started in Round 5 (UCL MD1).'}
+        </p>
+        <div class="pt-1">
+          <button onclick="goToRoundTable('${roundId}')" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-600/30 transition active:scale-95">
+            <i data-lucide="list-ordered" class="w-4 h-4"></i>
+            <span>View Standings Table for ${getShortRoundLabel(roundDisplayName) || roundDisplayName}</span>
+          </button>
+        </div>
       </div>
     `;
     if (window.lucide) lucide.createIcons();
@@ -574,11 +832,11 @@ function renderRoundPredictions(roundId) {
   const isPending = preds.every(p => p.correct === null);
   if (isPending) {
     profileR5SummaryBadge.textContent = `${preds.length} picks submitted (Awaiting Results)`;
-    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium';
+    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium whitespace-nowrap';
   } else {
     const correctCount = preds.filter(p => p.correct).length;
     profileR5SummaryBadge.textContent = `${correctCount} / ${preds.length} correct (+${correctCount} pts)`;
-    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium';
+    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium whitespace-nowrap';
   }
 
   const outcomeShort = {
@@ -641,6 +899,17 @@ function renderRoundPredictions(roundId) {
   if (window.lucide) lucide.createIcons();
 }
 
+window.goToRoundTable = function(roundId) {
+  closeModal();
+  currentTab = roundId;
+  updateActiveTabUI();
+  renderLeaderboardTable();
+  const tableSec = document.getElementById('leaderboard-table');
+  if (tableSec) {
+    tableSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+};
+
 // ==========================================
 // Leaderboard Tabs & Rendering
 // ==========================================
@@ -653,6 +922,10 @@ function updateActiveTabUI() {
       btn.className = 'tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50 shrink-0';
     }
   });
+
+  if (roundJumpSelect) {
+    roundJumpSelect.value = currentTab;
+  }
 }
 
 function renderLeaderboardTable() {
@@ -670,21 +943,27 @@ function renderLeaderboardTable() {
 }
 
 function renderOverallTable(filter) {
+  const allRounds = (globalData && globalData.rounds) || [];
+  const displayedRounds = allRounds.filter(r => {
+    if (currentCategory === 'all') return true;
+    return getRoundCategory(r.name) === currentCategory;
+  });
+
+  const roundColsHtml = displayedRounds.map(r => {
+    const shortLabel = getShortRoundLabel(r.name);
+    return `<th class="py-3 px-2 text-center hidden md:table-cell text-[11px] font-mono whitespace-nowrap" title="${r.name}">${shortLabel}</th>`;
+  }).join('');
+
   tableHeaders.innerHTML = `
     <tr>
-      <th class="py-3 px-3 sm:px-4 w-12 sticky-col-1 font-mono">Rank</th>
-      <th class="py-3 px-3 sm:px-4 sticky-col-2">Participant</th>
-      <th class="py-3 px-2 text-center hidden md:table-cell">R1</th>
-      <th class="py-3 px-2 text-center hidden md:table-cell">R2</th>
-      <th class="py-3 px-2 text-center hidden md:table-cell">R3</th>
-      <th class="py-3 px-2 text-center hidden md:table-cell">R4</th>
-      <th class="py-3 px-2 text-center hidden md:table-cell">R5</th>
-      <th class="py-3 px-2 text-center hidden md:table-cell">R6</th>
-      <th class="py-3 px-3 sm:px-4 text-right">Total Points</th>
+      <th class="py-3 px-2 sm:px-3 sticky-col-1 font-mono whitespace-nowrap">Rank</th>
+      <th class="py-3 px-3 sm:px-4 sticky-col-2 whitespace-nowrap">Participant</th>
+      ${roundColsHtml}
+      <th class="py-3 px-3 sm:px-4 text-right whitespace-nowrap">Total Points</th>
     </tr>
   `;
 
-  let users = globalData.leaderboard;
+  let users = globalData.leaderboard || [];
   if (filter) {
     users = users.filter(u => {
       const matchName = u.username.toLowerCase().includes(filter);
@@ -695,10 +974,12 @@ function renderOverallTable(filter) {
 
   tableCountLabel.textContent = `Showing ${users.length} of ${globalData.total_participants} participants`;
 
+  const totalCols = 3 + displayedRounds.length;
+
   if (users.length === 0) {
     tableBody.innerHTML = `
       <tr>
-        <td colspan="9" class="text-center py-8 text-slate-500 text-xs">
+        <td colspan="${totalCols}" class="text-center py-8 text-slate-500 text-xs">
           No participants match "${filter}"
         </td>
       </tr>
@@ -707,52 +988,48 @@ function renderOverallTable(filter) {
   }
 
   tableBody.innerHTML = users.map(u => {
-    let rankBadge = `<span class="font-mono text-slate-400 font-semibold">#${u.rank}</span>`;
+    let rankBadge = `<span class="font-mono text-slate-400 font-semibold whitespace-nowrap">#${u.rank}</span>`;
     let rowClass = 'hover:bg-slate-800/60 cursor-pointer transition active:bg-slate-800/80';
     if (u.rank === 1) {
-      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-400">🥇 1</span>`;
+      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-400 whitespace-nowrap">🥇 1</span>`;
     } else if (u.rank === 2) {
-      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-slate-300">🥈 2</span>`;
+      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-slate-300 whitespace-nowrap">🥈 2</span>`;
     } else if (u.rank === 3) {
-      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-600">🥉 3</span>`;
+      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-600 whitespace-nowrap">🥉 3</span>`;
     }
 
     const isSelected = selectedUser && selectedUser.toLowerCase() === u.username.toLowerCase();
     if (isSelected) {
-      rowClass += ' bg-indigo-900/30 border-l-2 border-indigo-500';
+      rowClass += ' selected-row bg-indigo-900/30 border-l-2 border-indigo-500';
     }
 
-    const rScore = (id) => {
-      const val = u.round_scores[id];
-      if (id === 'r6') {
+    const rCellsHtml = displayedRounds.map(r => {
+      const val = u.round_scores ? u.round_scores[r.id] : null;
+      if (r.id === 'r6' || r.status === 'active') {
         if (u.has_active_predictions) {
-          return '<span class="text-emerald-400 font-semibold text-[11px]" title="Predictions submitted (Pending results)">0*</span>';
+          return '<td class="py-3 px-2 text-center hidden md:table-cell text-xs"><span class="text-emerald-400 font-semibold text-[11px]" title="Predictions submitted (Pending results)">0*</span></td>';
         }
-        return '<span class="text-slate-600">—</span>';
+        return '<td class="py-3 px-2 text-center hidden md:table-cell text-xs"><span class="text-slate-600">—</span></td>';
       }
-      return val !== null && val !== undefined ? `<span class="text-slate-300 font-mono">${val}</span>` : '<span class="text-slate-600">—</span>';
-    };
+      const scoreDisplay = (val !== null && val !== undefined) ? `<span class="text-slate-300 font-mono">${val}</span>` : '<span class="text-slate-600">—</span>';
+      return `<td class="py-3 px-2 text-center hidden md:table-cell text-xs">${scoreDisplay}</td>`;
+    }).join('');
 
     const aliasesNotice = u.aliases && u.aliases.length > 1 ? `<span class="text-[10px] text-slate-500 hidden sm:inline">(${u.aliases.join(', ')})</span>` : '';
-    const activeBadge = u.has_active_predictions ? '<span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 shrink-0" title="Round 6 predictions submitted">R6 ✓</span>' : '';
+    const activeBadge = u.has_active_predictions ? '<span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 shrink-0" title="Active round predictions submitted">Active ✓</span>' : '';
 
     return `
       <tr class="${rowClass}" onclick="selectUser('${u.username}')">
-        <td class="py-3 px-3 sm:px-4 sticky-col-1">${rankBadge}</td>
-        <td class="py-3 px-3 sm:px-4 sticky-col-2">
+        <td class="py-3 px-2 sm:px-3 sticky-col-1 whitespace-nowrap">${rankBadge}</td>
+        <td class="py-3 px-3 sm:px-4 sticky-col-2 whitespace-nowrap">
           <div class="flex items-center space-x-1.5">
             <span class="font-semibold text-white text-xs sm:text-sm hover:underline">${u.username}</span>
             ${aliasesNotice}
             ${activeBadge}
           </div>
         </td>
-        <td class="py-3 px-2 text-center hidden md:table-cell text-xs">${rScore('r1')}</td>
-        <td class="py-3 px-2 text-center hidden md:table-cell text-xs">${rScore('r2')}</td>
-        <td class="py-3 px-2 text-center hidden md:table-cell text-xs">${rScore('r3')}</td>
-        <td class="py-3 px-2 text-center hidden md:table-cell text-xs">${rScore('r4')}</td>
-        <td class="py-3 px-2 text-center hidden md:table-cell text-xs">${rScore('r5')}</td>
-        <td class="py-3 px-2 text-center hidden md:table-cell text-xs">${rScore('r6')}</td>
-        <td class="py-3 px-3 sm:px-4 text-right">
+        ${rCellsHtml}
+        <td class="py-3 px-3 sm:px-4 text-right whitespace-nowrap">
           <span class="text-xs sm:text-sm font-black text-emerald-400 font-mono">${u.total_score}</span>
         </td>
       </tr>
@@ -766,9 +1043,9 @@ function renderRoundTable(roundId, filter) {
 
   tableHeaders.innerHTML = `
     <tr>
-      <th class="py-3 px-3 sm:px-4 w-14 font-mono sticky-col-1">Rank</th>
-      <th class="py-3 px-3 sm:px-4 sticky-col-2">Participant (${roundMeta.name})</th>
-      <th class="py-3 px-3 sm:px-4 text-right">${isRoundActive ? 'Status' : 'Round Points'}</th>
+      <th class="py-3 px-2 sm:px-3 sticky-col-1 font-mono whitespace-nowrap">Rank</th>
+      <th class="py-3 px-3 sm:px-4 sticky-col-2 whitespace-nowrap">Participant (${roundMeta.name})</th>
+      <th class="py-3 px-3 sm:px-4 text-right whitespace-nowrap">${isRoundActive ? 'Status' : 'Round Points'}</th>
     </tr>
   `;
 
@@ -792,24 +1069,24 @@ function renderRoundTable(roundId, filter) {
   }
 
   tableBody.innerHTML = filtered.map(u => {
-    let rankBadge = `<span class="font-mono text-slate-400 font-semibold">#${u.rank}</span>`;
-    if (u.rank === 1) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-400">🥇 1</span>`;
-    else if (u.rank === 2) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-slate-300">🥈 2</span>`;
-    else if (u.rank === 3) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-600">🥉 3</span>`;
+    let rankBadge = `<span class="font-mono text-slate-400 font-semibold whitespace-nowrap">#${u.rank}</span>`;
+    if (u.rank === 1) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-400 whitespace-nowrap">🥇 1</span>`;
+    else if (u.rank === 2) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-slate-300 whitespace-nowrap">🥈 2</span>`;
+    else if (u.rank === 3) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-600 whitespace-nowrap">🥉 3</span>`;
 
     const isSelected = selectedUser && selectedUser.toLowerCase() === u.username.toLowerCase();
     let rowClass = 'hover:bg-slate-800/60 cursor-pointer transition active:bg-slate-800/80';
-    if (isSelected) rowClass += ' bg-indigo-900/30 border-l-2 border-indigo-500';
+    if (isSelected) rowClass += ' selected-row bg-indigo-900/30 border-l-2 border-indigo-500';
 
     const rightColDisplay = isRoundActive
-      ? '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold">Submitted (Pending)</span>'
-      : `<span class="font-black text-indigo-400 font-mono text-xs sm:text-sm">${u.score}</span>`;
+      ? '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold whitespace-nowrap">Submitted (Pending)</span>'
+      : `<span class="font-black text-indigo-400 font-mono text-xs sm:text-sm whitespace-nowrap">${u.score}</span>`;
 
     return `
       <tr class="${rowClass}" onclick="selectUser('${u.username}')">
-        <td class="py-3 px-3 sm:px-4 sticky-col-1">${rankBadge}</td>
-        <td class="py-3 px-3 sm:px-4 sticky-col-2 font-semibold text-white text-xs sm:text-sm hover:underline">${u.username}</td>
-        <td class="py-3 px-3 sm:px-4 text-right">${rightColDisplay}</td>
+        <td class="py-3 px-2 sm:px-3 sticky-col-1 whitespace-nowrap">${rankBadge}</td>
+        <td class="py-3 px-3 sm:px-4 sticky-col-2 whitespace-nowrap font-semibold text-white text-xs sm:text-sm hover:underline">${u.username}</td>
+        <td class="py-3 px-3 sm:px-4 text-right whitespace-nowrap">${rightColDisplay}</td>
       </tr>
     `;
   }).join('');

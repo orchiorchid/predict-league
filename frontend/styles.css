@@ -138,20 +138,52 @@ body {
   }
 }
 
-/* Sticky first columns in mobile table */
-@media (max-width: 640px) {
-  .sticky-col-1 {
-    position: sticky;
-    left: 0;
-    z-index: 10;
-    background-color: #0b0f19;
-  }
-  .sticky-col-2 {
-    position: sticky;
-    left: 48px;
-    z-index: 10;
-    background-color: #0b0f19;
-  }
+/* Sticky first columns in mobile and desktop table */
+.sticky-col-1 {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background-color: #0d1322;
+  min-width: 72px;
+  width: 72px;
+  white-space: nowrap !important;
+}
+
+.sticky-col-2 {
+  position: sticky;
+  left: 72px;
+  z-index: 10;
+  background-color: #0d1322;
+  white-space: nowrap !important;
+}
+
+/* Match background on hover & selection for sticky cells */
+tr:hover .sticky-col-1,
+tr:hover .sticky-col-2 {
+  background-color: #1e293b !important;
+}
+
+tr.selected-row .sticky-col-1,
+tr.selected-row .sticky-col-2,
+tr[class*="bg-indigo-900"] .sticky-col-1,
+tr[class*="bg-indigo-900"] .sticky-col-2 {
+  background-color: #1e1b4b !important;
+}
+
+thead tr .sticky-col-1,
+thead tr .sticky-col-2 {
+  background-color: #0b0f19 !important;
+}
+
+/* Accordion, rails and active round cards */
+.accordion-content {
+  transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+}
+
+.round-card-active {
+  border-color: #6366f1 !important;
+  background-color: rgba(49, 46, 129, 0.45) !important;
+  box-shadow: 0 0 18px -2px rgba(99, 102, 241, 0.4);
 }
 
 /* Toast popup */
