@@ -14,8 +14,54 @@ def pick_canonical_name(variants: List[str]) -> str:
     """Select the best display name from case variants (e.g. Qqq666 over qqq666)."""
     if not variants:
         return ""
-    # Sort by: has uppercase character, then longest, then first
     return max(variants, key=lambda n: (any(c.isupper() for c in n), len(n)))
+
+# Master archive of historical rounds with their official match titles and outcomes.
+# This prevents upcoming rounds in Google Forms from overwriting past match titles and breakdowns.
+ARCHIVED_ROUNDS = {
+    "r5": {
+        "id": "r5",
+        "name": "Round 5 (UCL MD1)",
+        "status": "completed",
+        "user_col": "M",
+        "score_col": "N",
+        "row_start": 175,
+        "row_end": 212,
+        "matches": [
+            {"title": "Club Brugge vs Aston Villa", "code": "BRU/AVL", "actual": "Away"},
+            {"title": "Dortmund vs Villarreal", "code": "BVB/VIL", "actual": "Home"},
+            {"title": "Napoli vs Arsenal", "code": "NAP/ARS", "actual": "Away"},
+            {"title": "Barcelona vs Feyenoord", "code": "BAR/FEY", "actual": "Home"},
+            {"title": "Liverpool vs Atletico Madrid", "code": "LIV/ATM", "actual": "Home"},
+            {"title": "Porto vs Manchester City", "code": "POR/MCI", "actual": "Away"},
+            {"title": "Real Madrid vs Inter Milan", "code": "RMA/INT", "actual": "Home"},
+            {"title": "PSG vs Slovan Bratislava", "code": "PSG/SLB", "actual": "Home"},
+            {"title": "Bayern Munich vs Bodo/Glimt", "code": "BAY/BOD", "actual": "Home"},
+            {"title": "Manchester United vs Sabah", "code": "MUN/SAB", "actual": "Home"},
+        ]
+    },
+    "r4": {
+        "id": "r4",
+        "name": "Round 4 (PL MD3)",
+        "status": "completed",
+        "user_col": "J",
+        "score_col": "K",
+        "row_start": 135,
+        "row_end": 174,
+        "matches": [
+            {"title": "Ipswich vs Liverpool", "code": "IPS/LIV", "actual": None},
+            {"title": "Newcastle vs Bournemouth", "code": "NEW/BOU", "actual": None},
+            {"title": "Nottingham Forest vs Tottenham", "code": "NFO/TOT", "actual": None},
+            {"title": "Fulham vs Crystal Palace", "code": "FUL/CRY", "actual": None},
+            {"title": "Manchester City vs Coventry", "code": "MCI/COV", "actual": None},
+            {"title": "Brentford vs Sunderland", "code": "BRE/SUN", "actual": None},
+            {"title": "Brighton vs Leeds", "code": "BHA/LEE", "actual": None},
+            {"title": "Hull vs Aston Villa", "code": "HUL/AVL", "actual": None},
+            {"title": "Everton vs Manchester United", "code": "EVE/MUN", "actual": None},
+            {"title": "Arsenal vs Chelsea", "code": "ARS/CHE", "actual": None},
+        ]
+    }
+}
 
 class SheetService:
     def __init__(self, spreadsheet_id: str = DEFAULT_SPREADSHEET_ID, cache_ttl_seconds: int = 15):
@@ -53,7 +99,7 @@ class SheetService:
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)"
         })
-        
+
         try:
             with urllib.request.urlopen(req, timeout=15) as response:
                 content = response.read()
@@ -94,26 +140,6 @@ class SheetService:
         round_rows = parse_sheet("xl/worksheets/sheet2.xml")
         overall_rows = parse_sheet("xl/worksheets/sheet3.xml")
 
-        # 2. Parse matches & actual results from row 1 of Form Responses 1
-        r1 = form_rows.get(1, {})
-        match_cols = ["C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]
-        actual_cols = ["P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y"]
-
-        matches = []
-        for m_col, a_col in zip(match_cols, actual_cols):
-            title = r1.get(m_col, "").strip()
-            actual = r1.get(a_col, "").strip()
-            if title:
-                short_title = title
-                if "[" in title and "]" in title:
-                    short_title = title.split("[")[1].split("]")[0]
-                matches.append({
-                    "col": m_col,
-                    "raw_title": title,
-                    "title": short_title,
-                    "actual": actual
-                })
-
         # Name variant tracker (lowercase -> list of seen raw strings)
         user_variants: Dict[str, List[str]] = defaultdict(list)
 
@@ -126,12 +152,36 @@ class SheetService:
                 user_variants[k].append(clean)
             return k
 
-        # 3. Parse Round 1-4 scores from Sheet1
+        # 2. Parse matches for current/active round from Row 0 of Form Responses 1
+        r1_header = form_rows.get(1, {})
+        match_cols = ["C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]
+
+        active_matches = []
+        active_round_name = "Round 6 (PL MD4)"
+        for idx, m_col in enumerate(match_cols):
+            raw_title = r1_header.get(m_col, "").strip()
+            if raw_title:
+                if "[" in raw_title and "]" in raw_title:
+                    short_title = raw_title.split("[")[1].split("]")[0]
+                    round_tag = raw_title.split("[")[0].strip()
+                    if round_tag:
+                        active_round_name = f"Round 6 ({round_tag})"
+                else:
+                    short_title = raw_title
+                active_matches.append({
+                    "col": m_col,
+                    "title": short_title,
+                    "raw_title": raw_title,
+                    "actual": None  # Active/upcoming round matches are pending
+                })
+
+        # 3. Parse Round 1-5 official standings from Sheet1
         round_definitions = [
-            {"id": "r1", "name": "Round 1 (PL MD1)", "user_col": "A", "score_col": "B"},
-            {"id": "r2", "name": "Round 2 (LC R2)", "user_col": "D", "score_col": "E"},
-            {"id": "r3", "name": "Round 3 (PL MD2)", "user_col": "G", "score_col": "H"},
-            {"id": "r4", "name": "Round 4 (PL MD3)", "user_col": "J", "score_col": "K"},
+            {"id": "r1", "name": "Round 1 (PL MD1)", "user_col": "A", "score_col": "B", "status": "completed"},
+            {"id": "r2", "name": "Round 2 (LC R2)", "user_col": "D", "score_col": "E", "status": "completed"},
+            {"id": "r3", "name": "Round 3 (PL MD2)", "user_col": "G", "score_col": "H", "status": "completed"},
+            {"id": "r4", "name": "Round 4 (PL MD3)", "user_col": "J", "score_col": "K", "status": "completed"},
+            {"id": "r5", "name": "Round 5 (UCL MD1)", "user_col": "M", "score_col": "N", "status": "completed"},
         ]
 
         raw_rounds_standings: Dict[str, Dict[str, float]] = {}
@@ -139,7 +189,7 @@ class SheetService:
         for rd in round_definitions:
             r_id = rd["id"]
             scores_by_lower: Dict[str, float] = {}
-            for r_num in range(2, 60):
+            for r_num in range(2, 65):
                 row = round_rows.get(r_num, {})
                 u = row.get(rd["user_col"], "").strip()
                 s = row.get(rd["score_col"], "").strip()
@@ -149,43 +199,41 @@ class SheetService:
                         sc = float(s)
                     except ValueError:
                         sc = 0.0
-                    # If duplicate in same round, take max
                     scores_by_lower[k] = max(scores_by_lower.get(k, 0.0), sc)
 
             raw_rounds_standings[r_id] = scores_by_lower
 
-        # 4. Parse Round 5 (UCL MD1) from Form Responses 1 (rows 174+)
-        r5_scores_by_lower: Dict[str, float] = {}
-        r5_predictions_by_lower: Dict[str, List[Dict[str, Any]]] = {}
-        vote_counts = {
-            m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": m["actual"]}
-            for m in matches
-        }
+        # 4. Parse Predictions by Round
+        # We store predictions per round in `round_predictions[round_id][user_lower]`
+        round_predictions: Dict[str, Dict[str, List[Dict[str, Any]]]] = defaultdict(dict)
+        round_distributions: Dict[str, List[Dict[str, Any]]] = {}
 
-        # Submissions for Round 5
-        for r_num in sorted(form_rows.keys()):
-            if r_num < 174:
-                continue
-            row = form_rows[r_num]
+        # 4A. Parse Round 5 (UCL MD1) predictions (rows 175 to 212)
+        r5_matches = ARCHIVED_ROUNDS["r5"]["matches"]
+        r5_votes = {m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": m["actual"]} for m in r5_matches}
+
+        for r_num in range(175, 213):
+            row = form_rows.get(r_num, {})
             u = row.get("B", "").strip()
             if not u:
                 continue
             k = register_user(u)
 
-            user_score = 0
-            preds = []
-            for m in matches:
-                pred_val = row.get(m["col"], "").strip()
+            user_preds = []
+            for idx, m_col in enumerate(match_cols):
+                if idx >= len(r5_matches):
+                    break
+                m = r5_matches[idx]
+                pred_val = row.get(m_col, "").strip()
                 actual_val = m["actual"]
                 is_correct = bool(pred_val and actual_val and pred_val.lower() == actual_val.lower())
                 point = 1 if is_correct else 0
-                user_score += point
 
-                if pred_val in vote_counts[m["title"]]:
-                    vote_counts[m["title"]][pred_val] += 1
-                    vote_counts[m["title"]]["Total"] += 1
+                if pred_val in r5_votes[m["title"]]:
+                    r5_votes[m["title"]][pred_val] += 1
+                    r5_votes[m["title"]]["Total"] += 1
 
-                preds.append({
+                user_preds.append({
                     "match": m["title"],
                     "prediction": pred_val,
                     "actual": actual_val,
@@ -193,12 +241,78 @@ class SheetService:
                     "points": point
                 })
 
-            r5_scores_by_lower[k] = float(user_score)
-            r5_predictions_by_lower[k] = preds
+            round_predictions["r5"][k] = user_preds
 
-        raw_rounds_standings["r5"] = r5_scores_by_lower
+        # Build R5 distributions
+        r5_dist = []
+        for m in r5_matches:
+            stats = r5_votes[m["title"]]
+            tot = stats["Total"] if stats["Total"] > 0 else 1
+            r5_dist.append({
+                "match": m["title"],
+                "actual": stats["actual"],
+                "home": stats["Home"],
+                "draw": stats["Draw"],
+                "away": stats["Away"],
+                "total": stats["Total"],
+                "home_pct": round((stats["Home"] / tot) * 100, 1),
+                "draw_pct": round((stats["Draw"] / tot) * 100, 1),
+                "away_pct": round((stats["Away"] / tot) * 100, 1)
+            })
+        round_distributions["r5"] = r5_dist
 
-        # 5. Check Sheet2 (Overall Leaderboard) for historical participants
+        # 4B. Parse Round 6 (PL MD4) predictions (rows 213+)
+        r6_votes = {m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": None} for m in active_matches}
+        r6_scores: Dict[str, float] = {}
+
+        for r_num in sorted(form_rows.keys()):
+            if r_num < 213:
+                continue
+            row = form_rows[r_num]
+            u = row.get("B", "").strip()
+            if not u or u in ["Home", "Draw", "Away"]:
+                continue
+            k = register_user(u)
+
+            user_preds = []
+            for m in active_matches:
+                pred_val = row.get(m["col"], "").strip()
+                if pred_val in r6_votes[m["title"]]:
+                    r6_votes[m["title"]][pred_val] += 1
+                    r6_votes[m["title"]]["Total"] += 1
+
+                user_preds.append({
+                    "match": m["title"],
+                    "prediction": pred_val,
+                    "actual": None,  # Pending
+                    "correct": None,
+                    "points": 0
+                })
+
+            round_predictions["r6"][k] = user_preds
+            r6_scores[k] = 0.0
+
+        raw_rounds_standings["r6"] = r6_scores
+
+        # Build R6 distributions
+        r6_dist = []
+        for m in active_matches:
+            stats = r6_votes[m["title"]]
+            tot = stats["Total"] if stats["Total"] > 0 else 1
+            r6_dist.append({
+                "match": m["title"],
+                "actual": None,
+                "home": stats["Home"],
+                "draw": stats["Draw"],
+                "away": stats["Away"],
+                "total": stats["Total"],
+                "home_pct": round((stats["Home"] / tot) * 100, 1),
+                "draw_pct": round((stats["Draw"] / tot) * 100, 1),
+                "away_pct": round((stats["Away"] / tot) * 100, 1)
+            })
+        round_distributions["r6"] = r6_dist
+
+        # 5. Check Sheet2 (Overall Leaderboard) for any participants not yet seen
         for r_num in range(1, 250):
             row = overall_rows.get(r_num, {})
             u = row.get("M", "").strip()
@@ -209,20 +323,20 @@ class SheetService:
         all_canonical_keys = list(user_variants.keys())
         overall_leaderboard = []
 
+        all_round_ids = ["r1", "r2", "r3", "r4", "r5", "r6"]
+
         for k in all_canonical_keys:
             variants = user_variants[k]
             display_name = pick_canonical_name(variants)
 
             # Round breakdown
             round_breakdown = {}
-            for rd in round_definitions:
-                round_breakdown[rd["id"]] = raw_rounds_standings[rd["id"]].get(k)
-            round_breakdown["r5"] = r5_scores_by_lower.get(k)
+            for rid in all_round_ids:
+                round_breakdown[rid] = raw_rounds_standings.get(rid, {}).get(k)
 
-            # Calculate total score as sum of all participating rounds
-            total_sc = sum(sc for sc in round_breakdown.values() if sc is not None)
-            base_sc = sum(sc for rid, sc in round_breakdown.items() if rid != "r5" and sc is not None)
-            r5_sc = r5_scores_by_lower.get(k, 0.0)
+            # Calculate total score across all completed rounds
+            total_sc = sum(sc for rid, sc in round_breakdown.items() if sc is not None)
+            base_sc = sum(sc for rid, sc in round_breakdown.items() if rid not in ["r5", "r6"] and sc is not None)
 
             overall_leaderboard.append({
                 "username": display_name,
@@ -230,56 +344,41 @@ class SheetService:
                 "aliases": variants if len(variants) > 1 else [],
                 "total_score": round(total_sc, 1),
                 "base_score": round(base_sc, 1),
-                "r5_score": round(r5_sc, 1),
                 "round_scores": round_breakdown,
-                "has_r5_predictions": k in r5_predictions_by_lower
+                "has_active_predictions": k in round_predictions["r6"],
+                "has_r5_predictions": k in round_predictions["r5"]
             })
 
-        # Sort overall leaderboard by total_score desc, then r5_score desc, then username asc
-        overall_leaderboard.sort(key=lambda x: (-x["total_score"], -x["r5_score"], x["username"].lower()))
+        # Sort overall leaderboard by total_score desc, then username asc
+        overall_leaderboard.sort(key=lambda x: (-x["total_score"], x["username"].lower()))
         for idx, item in enumerate(overall_leaderboard, 1):
             item["rank"] = idx
 
         # Build clean round standings with canonical names
         round_lists: Dict[str, List[Dict[str, Any]]] = {}
-        for r_id in ["r1", "r2", "r3", "r4", "r5"]:
+        for r_id in all_round_ids:
             scores_map = raw_rounds_standings.get(r_id, {})
             standings = []
             for k, sc in scores_map.items():
                 display_name = pick_canonical_name(user_variants[k])
-                standings.append({"username": display_name, "canonical_key": k, "score": sc})
+                standings.append({
+                    "username": display_name,
+                    "canonical_key": k,
+                    "score": sc,
+                    "submitted": k in round_predictions.get(r_id, {})
+                })
             standings.sort(key=lambda x: (-x["score"], x["username"].lower()))
             for idx, item in enumerate(standings, 1):
                 item["rank"] = idx
             round_lists[r_id] = standings
 
-        # 7. Calculate Match Distributions
-        match_distributions = []
-        for m in matches:
-            t = m["title"]
-            stats = vote_counts[t]
-            tot = stats["Total"] if stats["Total"] > 0 else 1
-            h_pct = round((stats["Home"] / tot) * 100, 1)
-            d_pct = round((stats["Draw"] / tot) * 100, 1)
-            a_pct = round((stats["Away"] / tot) * 100, 1)
-            match_distributions.append({
-                "match": t,
-                "actual": stats["actual"],
-                "home": stats["Home"],
-                "draw": stats["Draw"],
-                "away": stats["Away"],
-                "total": stats["Total"],
-                "home_pct": h_pct,
-                "draw_pct": d_pct,
-                "away_pct": a_pct
-            })
-
         rounds_meta = [
-            {"id": "r1", "name": "Round 1 (PL MD1)"},
-            {"id": "r2", "name": "Round 2 (LC R2)"},
-            {"id": "r3", "name": "Round 3 (PL MD2)"},
-            {"id": "r4", "name": "Round 4 (PL MD3)"},
-            {"id": "r5", "name": "Round 5 (UCL MD1)"},
+            {"id": "r1", "name": "Round 1 (PL MD1)", "status": "completed"},
+            {"id": "r2", "name": "Round 2 (LC R2)", "status": "completed"},
+            {"id": "r3", "name": "Round 3 (PL MD2)", "status": "completed"},
+            {"id": "r4", "name": "Round 4 (PL MD3)", "status": "completed"},
+            {"id": "r5", "name": "Round 5 (UCL MD1)", "status": "completed"},
+            {"id": "r6", "name": active_round_name, "status": "active"},
         ]
 
         return {
@@ -287,11 +386,13 @@ class SheetService:
             "spreadsheet_url": self.spreadsheet_url,
             "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "total_participants": len(overall_leaderboard),
+            "active_round_id": "r6",
             "rounds": rounds_meta,
             "round_standings": round_lists,
             "leaderboard": overall_leaderboard,
-            "match_distributions": match_distributions,
-            "r5_predictions": {pick_canonical_name(user_variants[k]): preds for k, preds in r5_predictions_by_lower.items()}
+            "match_distributions": round_distributions.get("r6", []),
+            "round_match_distributions": round_distributions,
+            "round_predictions": round_predictions
         }
 
     def get_user_detail(self, username: str, force: bool = False) -> Optional[Dict[str, Any]]:
@@ -308,20 +409,28 @@ class SheetService:
         if not target:
             return None
 
+        k = target["canonical_key"]
+
         # Build round breakdown list
         rounds_meta = data["rounds"]
         round_breakdown_list = []
         for rm in rounds_meta:
             r_id = rm["id"]
             sc = target["round_scores"].get(r_id)
+            has_preds = k in data["round_predictions"].get(r_id, {})
             round_breakdown_list.append({
                 "round_id": r_id,
                 "round_name": rm["name"],
                 "score": sc,
-                "participated": sc is not None
+                "participated": sc is not None or has_preds,
+                "status": rm["status"]
             })
 
-        user_preds = data["r5_predictions"].get(target["username"], [])
+        # Assemble predictions for each round for this user
+        user_round_preds = {}
+        for r_id, user_map in data["round_predictions"].items():
+            if k in user_map:
+                user_round_preds[r_id] = user_map[k]
 
         return {
             "username": target["username"],
@@ -329,9 +438,10 @@ class SheetService:
             "rank": target["rank"],
             "total_score": target["total_score"],
             "base_score": target["base_score"],
-            "r5_score": target["r5_score"],
+            "active_round_id": "r6",
             "round_scores": round_breakdown_list,
-            "r5_predictions": user_preds,
+            "round_predictions": user_round_preds,
+            "r5_predictions": user_round_preds.get("r5", []),
             "total_participants": data["total_participants"],
             "last_updated": data["last_updated"],
             "cached": data["cached"]
@@ -348,7 +458,6 @@ class SheetService:
         for item in data["leaderboard"]:
             u = item["username"]
             aliases = item.get("aliases", [])
-            # Match against display name or any alias
             match_display = q in u.lower()
             match_alias = any(q in a.lower() for a in aliases)
             if match_display or match_alias:
@@ -361,6 +470,5 @@ class SheetService:
                     "starts": starts
                 })
 
-        # Sort by starts-with first, then by rank
         results.sort(key=lambda x: (not x["starts"], x["rank"]))
         return results[:limit]

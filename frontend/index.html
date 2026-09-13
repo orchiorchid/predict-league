@@ -151,9 +151,12 @@
           <i data-lucide="globe" class="w-3.5 h-3.5"></i>
           <span>Overall Standings</span>
         </button>
+        <button data-tab="r6" class="tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50 shrink-0">
+          <span>Round 6 (PL MD4)</span>
+          <span class="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">Active</span>
+        </button>
         <button data-tab="r5" class="tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50 shrink-0">
           <span>Round 5 (UCL MD1)</span>
-          <span class="px-1.5 py-0.2 rounded bg-indigo-500/20 text-indigo-300 text-[10px]">Current</span>
         </button>
         <button data-tab="r4" class="tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50 shrink-0">
           <span>Round 4 (PL MD3)</span>
@@ -200,15 +203,26 @@
       </div>
     </section>
 
-    <!-- MATCHES VOTING STATS (Round 5: UCL MD1) -->
+    <!-- MATCHES VOTING STATS -->
     <section class="space-y-4 pt-2">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h2 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
             <i data-lucide="pie-chart" class="w-5 h-5 text-indigo-400"></i>
             Match Predictions Breakdown
           </h2>
           <p class="text-[11px] sm:text-xs text-slate-400 mt-0.5">Community voting statistics (Home win / Draw / Away win) and actual results</p>
+        </div>
+
+        <!-- Distribution Round Toggle Tabs -->
+        <div class="flex items-center gap-2 overflow-x-auto pb-1" id="dist-tabs-container">
+          <button data-dist-tab="r6" class="dist-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 bg-indigo-600 text-white shadow-sm shadow-indigo-600/30">
+            <span>Round 6 (PL MD4)</span>
+            <span class="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">Active</span>
+          </button>
+          <button data-dist-tab="r5" class="dist-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700">
+            <span>Round 5 (UCL MD1)</span>
+          </button>
         </div>
       </div>
 
@@ -287,20 +301,27 @@
             <i data-lucide="bar-chart-2" class="w-4 h-4 text-indigo-400"></i>
             Tournament Rounds Breakdown
           </h4>
-          <div id="profile-rounds-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+          <div id="profile-rounds-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
             <!-- Round cards injected dynamically -->
           </div>
         </div>
 
-        <!-- Round 5 (UCL MD1) Predictions Detailed Table -->
+        <!-- Predictions Detailed Table with Round Selector -->
         <div class="space-y-3">
-          <div class="flex items-center justify-between">
-            <h4 class="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
-              <i data-lucide="check-circle-2" class="w-4 h-4 text-indigo-400"></i>
-              Round 5 Match Predictions (UCL MD1)
-            </h4>
-            <div id="profile-r5-summary-badge" class="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-medium">
-              0 / 10 correct
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 border-b border-slate-800 pb-2.5">
+            <div class="flex items-center gap-2">
+              <h4 class="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
+                <i data-lucide="check-circle-2" class="w-4 h-4 text-indigo-400"></i>
+                <span id="profile-predictions-title">Match Predictions</span>
+              </h4>
+              <div id="profile-r5-summary-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-medium">
+                --
+              </div>
+            </div>
+
+            <!-- Round selector tabs inside modal -->
+            <div id="modal-round-tabs" class="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+              <!-- Dynamically populated buttons: e.g. Round 6 (PL MD4) / Round 5 (UCL MD1) -->
             </div>
           </div>
 

@@ -13,6 +13,7 @@ class RoundScore(BaseModel):
     round_name: str
     score: Optional[float] = None
     participated: bool = False
+    status: str = "completed"
 
 class UserDetail(BaseModel):
     username: str
@@ -20,8 +21,10 @@ class UserDetail(BaseModel):
     rank: int
     total_score: float
     base_score: float
-    r5_score: float
+    r5_score: float = 0.0
+    active_round_id: str = "r6"
     round_scores: List[RoundScore]
+    round_predictions: Dict[str, List[MatchPrediction]] = {}
     r5_predictions: List[MatchPrediction] = []
 
 class LeaderboardUser(BaseModel):
@@ -30,7 +33,8 @@ class LeaderboardUser(BaseModel):
     aliases: List[str] = []
     total_score: float
     round_scores: Dict[str, Optional[float]] = {}
-    r5_score: float = 0.0
+    has_active_predictions: bool = False
+    has_r5_predictions: bool = False
 
 class MatchDistribution(BaseModel):
     match: str
@@ -46,6 +50,7 @@ class MatchDistribution(BaseModel):
 class RoundLeaderboard(BaseModel):
     id: str
     name: str
+    status: str = "completed"
     standings: List[Dict[str, Any]]
 
 class FullDataResponse(BaseModel):
@@ -54,6 +59,8 @@ class FullDataResponse(BaseModel):
     last_updated: str
     cached: bool
     total_participants: int
-    rounds: List[Dict[str, str]]
+    active_round_id: str = "r6"
+    rounds: List[Dict[str, Any]]
     leaderboard: List[LeaderboardUser]
     match_distributions: List[MatchDistribution]
+    round_match_distributions: Dict[str, List[MatchDistribution]] = {}
