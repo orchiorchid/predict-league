@@ -683,8 +683,20 @@ function renderUserProfileRoundCards(user) {
     let statusText = 'Skipped';
     let statusClass = 'text-slate-500 bg-slate-800/40';
     if (isCurrent) {
-      statusText = hasPreds ? 'Picks Submitted' : 'Pending Picks';
-      statusClass = hasPreds ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' : 'text-amber-400 bg-amber-500/10';
+      if (hasPreds) {
+        const correct = user.round_predictions[rs.round_id].filter(p => p.correct === true).length;
+        const pending = user.round_predictions[rs.round_id].filter(p => p.correct === null).length;
+        if (pending > 0 && correct > 0) {
+          statusText = `${correct} pts (Live)`;
+          statusClass = 'text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 font-semibold';
+        } else {
+          statusText = 'Picks Submitted';
+          statusClass = 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20';
+        }
+      } else {
+        statusText = 'Pending Picks';
+        statusClass = 'text-amber-400 bg-amber-500/10';
+      }
     } else if (hasPreds) {
       const correct = user.round_predictions[rs.round_id].filter(p => p.correct).length;
       statusText = `${correct}/${user.round_predictions[rs.round_id].length} correct`;
@@ -764,9 +776,15 @@ function renderRoundPredictions(roundId) {
     profileR5SummaryBadge.textContent = `${preds.length} picks submitted (Awaiting Results)`;
     profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium whitespace-nowrap';
   } else {
-    const correctCount = preds.filter(p => p.correct).length;
-    profileR5SummaryBadge.textContent = `${correctCount} / ${preds.length} correct (+${correctCount} pts)`;
-    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium whitespace-nowrap';
+    const correctCount = preds.filter(p => p.correct === true).length;
+    const pendingCount = preds.filter(p => p.correct === null).length;
+    if (pendingCount > 0) {
+      profileR5SummaryBadge.textContent = `${correctCount} / ${preds.length} correct (+${correctCount} pts, ${pendingCount} pending)`;
+      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-medium whitespace-nowrap';
+    } else {
+      profileR5SummaryBadge.textContent = `${correctCount} / ${preds.length} correct (+${correctCount} pts)`;
+      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium whitespace-nowrap';
+    }
   }
 
   const outcomeShort = {
@@ -941,7 +959,8 @@ function renderOverallTable(filter) {
       const val = u.round_scores ? u.round_scores[r.id] : null;
       if (r.id === 'r6' || r.status === 'active') {
         if (u.has_active_predictions) {
-          return '<td class="py-3 px-2 text-center hidden md:table-cell text-xs"><span class="text-emerald-400 font-semibold text-[11px]" title="Predictions submitted (Pending results)">0*</span></td>';
+          const livePts = (val !== null && val !== undefined) ? val : 0;
+          return `<td class="py-3 px-2 text-center hidden md:table-cell text-xs"><span class="text-emerald-400 font-semibold text-[11px]" title="Live round score: ${livePts} pts (${livePts} correct so far)">${livePts}*</span></td>`;
         }
         return '<td class="py-3 px-2 text-center hidden md:table-cell text-xs"><span class="text-slate-600">—</span></td>';
       }

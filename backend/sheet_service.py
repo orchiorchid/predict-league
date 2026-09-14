@@ -8,6 +8,7 @@ import threading
 import re
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
+from backend.espn_service import ESPNService
 
 DEFAULT_SPREADSHEET_ID = "1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4"
 
@@ -134,6 +135,7 @@ class SheetService:
         self._cached_data: Optional[Dict[str, Any]] = None
         self._last_fetch_time: float = 0
         self._lock = threading.Lock()
+        self.espn = ESPNService()
 
     @property
     def spreadsheet_url(self) -> str:
@@ -341,8 +343,23 @@ class SheetService:
             round_distributions[r_id] = r_dist
 
         # 4B. Parse Round 6 (PL MD4) predictions (rows 213+)
-        r6_votes = {m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": None} for m in active_matches}
+        # Automatically fetch live and final match results from ESPN without requiring any API keys
+        espn_results = {}
+        try:
+            espn_results = self.espn.resolve_match_results([m["title"] for m in active_matches], round_category="PL")
+        except Exception:
+            pass
+
+        r6_votes = {m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": None, "score": ""} for m in active_matches}
         r6_scores: Dict[str, float] = {}
+
+        for m in active_matches:
+            espn_info = espn_results.get(m["title"], {})
+            m["score"] = espn_info.get("score", "")
+            m["actual"] = espn_info.get("actual")  # "Home", "Draw", "Away", or None if not finished
+            m["is_final"] = espn_info.get("is_final", False)
+            r6_votes[m["title"]]["actual"] = m["actual"]
+            r6_votes[m["title"]]["score"] = m["score"]
 
         for r_num in sorted(form_rows.keys()):
             if r_num < 213:
@@ -354,23 +371,34 @@ class SheetService:
             k = register_user(u)
 
             user_preds = []
+            user_r6_score = 0.0
             for m in active_matches:
                 pred_val = row.get(m["col"], "").strip()
                 if pred_val in r6_votes[m["title"]]:
                     r6_votes[m["title"]][pred_val] += 1
                     r6_votes[m["title"]]["Total"] += 1
 
+                actual_val = m.get("actual")
+                is_final = m.get("is_final", False)
+                if is_final and actual_val:
+                    is_correct = bool(pred_val and pred_val.lower() == actual_val.lower())
+                    pt = 1 if is_correct else 0
+                    user_r6_score += pt
+                else:
+                    is_correct = None
+                    pt = 0
+
                 user_preds.append({
                     "match": m["title"],
-                    "score": "",
+                    "score": m.get("score", ""),
                     "prediction": pred_val,
-                    "actual": None,  # Pending
-                    "correct": None,
-                    "points": 0
+                    "actual": actual_val,  # Live outcome or None
+                    "correct": is_correct,  # True/False if finished, None if pending
+                    "points": pt
                 })
 
             round_predictions["r6"][k] = user_preds
-            r6_scores[k] = 0.0
+            r6_scores[k] = user_r6_score
 
         raw_rounds_standings["r6"] = r6_scores
 
@@ -381,8 +409,8 @@ class SheetService:
             tot = stats["Total"] if stats["Total"] > 0 else 1
             r6_dist.append({
                 "match": m["title"],
-                "score": "",
-                "actual": None,
+                "score": stats.get("score", ""),
+                "actual": stats.get("actual"),
                 "home": stats["Home"],
                 "draw": stats["Draw"],
                 "away": stats["Away"],
