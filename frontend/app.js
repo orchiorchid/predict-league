@@ -809,12 +809,16 @@ function renderRoundPredictions(roundId) {
                 <td class="py-2.5 px-3 sm:px-4 text-slate-500 font-mono text-[11px]">${idx + 1}</td>
                 <td class="py-2.5 px-3 sm:px-4 text-white font-medium text-xs">
                   <div>${p.match}</div>
-                  <div class="text-[10px] text-slate-400 sm:hidden mt-0.5">Result: ${outcomeShort[p.actual] || p.actual || '<span class="text-slate-500 italic">Pending</span>'}</div>
+                  <div class="text-[10px] text-slate-400 sm:hidden mt-0.5">
+                    ${p.score ? `<span class="text-slate-200 font-mono font-semibold mr-1 bg-slate-800 px-1 rounded">${p.score}</span>` : ''}
+                    Result: ${outcomeShort[p.actual] || p.actual || '<span class="text-slate-500 italic">Pending</span>'}
+                  </div>
                 </td>
                 <td class="py-2.5 px-3 sm:px-4 font-semibold text-indigo-300 text-xs whitespace-nowrap">
                   ${outcomeShort[p.prediction] || p.prediction}
                 </td>
-                <td class="py-2.5 px-3 sm:px-4 text-slate-400 text-xs hidden sm:table-cell whitespace-nowrap">
+                <td class="py-2.5 px-3 sm:px-4 text-slate-300 text-xs hidden sm:table-cell whitespace-nowrap">
+                  ${p.score ? `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-mono font-semibold text-[11px] mr-1.5 border border-slate-700/60">${p.score}</span>` : ''}
                   ${outcomeShort[p.actual] || p.actual || '<span class="text-slate-500 italic">Pending</span>'}
                 </td>
                 <td class="py-2.5 px-3 sm:px-4 text-right">${badge}</td>
@@ -1047,9 +1051,10 @@ function renderMatchDistributions() {
     let actualBadge = '';
     if (m.actual) {
       const outcomeNames = { 'Home': 'Home Win (1)', 'Draw': 'Draw (X)', 'Away': 'Away Win (2)' };
+      const scoreBadge = m.score ? `<span class="bg-emerald-500/20 text-white font-mono px-1.5 py-0.5 rounded mr-1">${m.score}</span>` : '';
       actualBadge = `
         <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shrink-0">
-          <i data-lucide="check" class="w-3 h-3"></i> Result: ${outcomeNames[m.actual] || m.actual}
+          <i data-lucide="check" class="w-3 h-3"></i> ${scoreBadge}Result: ${outcomeNames[m.actual] || m.actual}
         </span>
       `;
     } else {

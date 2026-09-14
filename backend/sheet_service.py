@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 import time
 from datetime import datetime
 import threading
+import re
 from typing import Dict, List, Any, Optional
 from collections import defaultdict
 
@@ -28,16 +29,16 @@ ARCHIVED_ROUNDS = {
         "row_start": 2,
         "row_end": 56,
         "matches": [
-            {"title": "Arsenal vs Coventry", "code": "ARS/COV", "actual": "Home"},
-            {"title": "Hull vs Manchester United", "code": "HUL/MUN", "actual": "Home"},
-            {"title": "Everton vs Crystal Palace", "code": "EVE/CRY", "actual": "Home"},
-            {"title": "Ipswich vs Sunderland", "code": "IPS/SUN", "actual": "Home"},
-            {"title": "Nottingham Forest vs Leeds", "code": "NFO/LEE", "actual": "Away"},
-            {"title": "Brentford vs Tottenham", "code": "BRE/TOT", "actual": "Home"},
-            {"title": "Brighton vs Aston Villa", "code": "BHA/AVL", "actual": "Home"},
-            {"title": "Manchester City vs Bournemouth", "code": "MCI/BOU", "actual": "Home"},
-            {"title": "Newcastle vs Liverpool", "code": "NEW/LIV", "actual": "Draw"},
-            {"title": "Fulham vs Chelsea", "code": "FUL/CHE", "actual": "Away"},
+            {"title": "Arsenal vs Coventry", "score": "3 - 0", "code": "ARS/COV", "actual": "Home"},
+            {"title": "Hull vs Manchester United", "score": "2 - 0", "code": "HUL/MUN", "actual": "Home"},
+            {"title": "Everton vs Crystal Palace", "score": "2 - 0", "code": "EVE/CRY", "actual": "Home"},
+            {"title": "Ipswich vs Sunderland", "score": "2 - 1", "code": "IPS/SUN", "actual": "Home"},
+            {"title": "Nottingham Forest vs Leeds", "score": "0 - 1", "code": "NFO/LEE", "actual": "Away"},
+            {"title": "Brentford vs Tottenham", "score": "3 - 0", "code": "BRE/TOT", "actual": "Home"},
+            {"title": "Brighton vs Aston Villa", "score": "4 - 0", "code": "BHA/AVL", "actual": "Home"},
+            {"title": "Manchester City vs Bournemouth", "score": "2 - 1", "code": "MCI/BOU", "actual": "Home"},
+            {"title": "Newcastle vs Liverpool", "score": "2 - 2", "code": "NEW/LIV", "actual": "Draw"},
+            {"title": "Fulham vs Chelsea", "score": "2 - 3", "code": "FUL/CHE", "actual": "Away"},
         ]
     },
     "r2": {
@@ -49,16 +50,16 @@ ARCHIVED_ROUNDS = {
         "row_start": 57,
         "row_end": 104,
         "matches": [
-            {"title": "Ipswich vs Leicester", "code": "IPS/LEI", "actual": "Home"},
-            {"title": "Plymouth vs Coventry", "code": "PLY/COV", "actual": "Away"},
-            {"title": "Stoke vs Hull", "code": "STO/HUL", "actual": "Away"},
-            {"title": "Birmingham vs Brentford", "code": "BIR/BRE", "actual": "Away"},
-            {"title": "Nottingham Forest vs Leeds", "code": "NFO/LEE", "actual": "Away"},
-            {"title": "Newcastle vs West Brom", "code": "NEW/WBA", "actual": "Home"},
-            {"title": "Tottenham vs Charlton", "code": "TOT/CHA", "actual": "Home"},
-            {"title": "Preston vs Everton", "code": "PNE/EVE", "actual": "Away"},
-            {"title": "Chelsea vs Luton", "code": "CHE/LUT", "actual": "Home"},
-            {"title": "Fulham vs Wimbledon", "code": "FUL/WIM", "actual": "Home"},
+            {"title": "Ipswich vs Leicester", "score": "3 - 1", "code": "IPS/LEI", "actual": "Home"},
+            {"title": "Plymouth vs Coventry", "score": "2 - 4", "code": "PLY/COV", "actual": "Away"},
+            {"title": "Stoke vs Hull", "score": "1 (4) - 1 (5)", "code": "STO/HUL", "actual": "Away"},
+            {"title": "Birmingham vs Brentford", "score": "1 - 6", "code": "BIR/BRE", "actual": "Away"},
+            {"title": "Nottingham Forest vs Leeds", "score": "0 - 2", "code": "NFO/LEE", "actual": "Away"},
+            {"title": "Newcastle vs West Brom", "score": "3 - 2", "code": "NEW/WBA", "actual": "Home"},
+            {"title": "Tottenham vs Charlton", "score": "5 - 1", "code": "TOT/CHA", "actual": "Home"},
+            {"title": "Preston vs Everton", "score": "0 - 4", "code": "PNE/EVE", "actual": "Away"},
+            {"title": "Chelsea vs Luton", "score": "2 - 0", "code": "CHE/LUT", "actual": "Home"},
+            {"title": "Fulham vs Wimbledon", "score": "3 - 0", "code": "FUL/WIM", "actual": "Home"},
         ]
     },
     "r3": {
@@ -70,16 +71,16 @@ ARCHIVED_ROUNDS = {
         "row_start": 105,
         "row_end": 134,
         "matches": [
-            {"title": "Crystal Palace vs Manchester City", "code": "CRY/MCI", "actual": "Away"},
-            {"title": "Liverpool vs Nottingham Forest", "code": "LIV/NFO", "actual": "Away"},
-            {"title": "Bournemouth vs Everton", "code": "BOU/EVE", "actual": "Draw"},
-            {"title": "Coventry vs Hull", "code": "COV/HUL", "actual": "Away"},
-            {"title": "Tottenham vs Newcastle", "code": "TOT/NEW", "actual": "Away"},
-            {"title": "Chelsea vs Brighton", "code": "CHE/BHA", "actual": "Home"},
-            {"title": "Leeds vs Brentford", "code": "LEE/BRE", "actual": "Draw"},
-            {"title": "Sunderland vs Fulham", "code": "SUN/FUL", "actual": "Home"},
-            {"title": "Manchester United vs Ipswich", "code": "MUN/IPS", "actual": "Home"},
-            {"title": "Aston Villa vs Arsenal", "code": "AVL/ARS", "actual": "Away"},
+            {"title": "Crystal Palace vs Manchester City", "score": "1 - 4", "code": "CRY/MCI", "actual": "Away"},
+            {"title": "Liverpool vs Nottingham Forest", "score": "2 - 2", "code": "LIV/NFO", "actual": "Draw"},
+            {"title": "Bournemouth vs Everton", "score": "1 - 1", "code": "BOU/EVE", "actual": "Draw"},
+            {"title": "Coventry vs Hull", "score": "0 - 1", "code": "COV/HUL", "actual": "Away"},
+            {"title": "Tottenham vs Newcastle", "score": "0 - 2", "code": "TOT/NEW", "actual": "Away"},
+            {"title": "Chelsea vs Brighton", "score": "4 - 3", "code": "CHE/BHA", "actual": "Home"},
+            {"title": "Leeds vs Brentford", "score": "1 - 1", "code": "LEE/BRE", "actual": "Draw"},
+            {"title": "Sunderland vs Fulham", "score": "1 - 0", "code": "SUN/FUL", "actual": "Home"},
+            {"title": "Manchester United vs Ipswich", "score": "5 - 2", "code": "MUN/IPS", "actual": "Home"},
+            {"title": "Aston Villa vs Arsenal", "score": "0 - 1", "code": "AVL/ARS", "actual": "Away"},
         ]
     },
     "r4": {
@@ -91,16 +92,16 @@ ARCHIVED_ROUNDS = {
         "row_start": 135,
         "row_end": 174,
         "matches": [
-            {"title": "Ipswich vs Liverpool", "code": "IPS/LIV", "actual": "Away"},
-            {"title": "Newcastle vs Bournemouth", "code": "NEW/BOU", "actual": "Draw"},
-            {"title": "Nottingham Forest vs Tottenham", "code": "NFO/TOT", "actual": "Draw"},
-            {"title": "Fulham vs Crystal Palace", "code": "FUL/CRY", "actual": "Away"},
-            {"title": "Manchester City vs Coventry", "code": "MCI/COV", "actual": "Home"},
-            {"title": "Brentford vs Sunderland", "code": "BRE/SUN", "actual": "Draw"},
-            {"title": "Brighton vs Leeds", "code": "BHA/LEE", "actual": "Draw"},
-            {"title": "Hull vs Aston Villa", "code": "HUL/AVL", "actual": "Draw"},
-            {"title": "Everton vs Manchester United", "code": "EVE/MUN", "actual": "Draw"},
-            {"title": "Arsenal vs Chelsea", "code": "ARS/CHE", "actual": "Home"},
+            {"title": "Ipswich vs Liverpool", "score": "0 - 2", "code": "IPS/LIV", "actual": "Away"},
+            {"title": "Newcastle vs Bournemouth", "score": "2 - 2", "code": "NEW/BOU", "actual": "Draw"},
+            {"title": "Nottingham Forest vs Tottenham", "score": "0 - 0", "code": "NFO/TOT", "actual": "Draw"},
+            {"title": "Fulham vs Crystal Palace", "score": "2 - 3", "code": "FUL/CRY", "actual": "Away"},
+            {"title": "Manchester City vs Coventry", "score": "1 - 0", "code": "MCI/COV", "actual": "Home"},
+            {"title": "Brentford vs Sunderland", "score": "1 - 1", "code": "BRE/SUN", "actual": "Draw"},
+            {"title": "Brighton vs Leeds", "score": "1 - 1", "code": "BHA/LEE", "actual": "Draw"},
+            {"title": "Hull vs Aston Villa", "score": "0 - 0", "code": "HUL/AVL", "actual": "Draw"},
+            {"title": "Everton vs Manchester United", "score": "2 - 2", "code": "EVE/MUN", "actual": "Draw"},
+            {"title": "Arsenal vs Chelsea", "score": "2 - 1", "code": "ARS/CHE", "actual": "Home"},
         ]
     },
     "r5": {
@@ -112,16 +113,16 @@ ARCHIVED_ROUNDS = {
         "row_start": 175,
         "row_end": 212,
         "matches": [
-            {"title": "Club Brugge vs Aston Villa", "code": "BRU/AVL", "actual": "Away"},
-            {"title": "Dortmund vs Villarreal", "code": "BVB/VIL", "actual": "Home"},
-            {"title": "Napoli vs Arsenal", "code": "NAP/ARS", "actual": "Away"},
-            {"title": "Barcelona vs Feyenoord", "code": "BAR/FEY", "actual": "Home"},
-            {"title": "Liverpool vs Atletico Madrid", "code": "LIV/ATM", "actual": "Home"},
-            {"title": "Porto vs Manchester City", "code": "POR/MCI", "actual": "Away"},
-            {"title": "Real Madrid vs Inter Milan", "code": "RMA/INT", "actual": "Home"},
-            {"title": "PSG vs Slovan Bratislava", "code": "PSG/SLB", "actual": "Home"},
-            {"title": "Bayern Munich vs Bodo/Glimt", "code": "BAY/BOD", "actual": "Home"},
-            {"title": "Manchester United vs Sabah", "code": "MUN/SAB", "actual": "Home"},
+            {"title": "Club Brugge vs Aston Villa", "score": "2 - 3", "code": "BRU/AVL", "actual": "Away"},
+            {"title": "Dortmund vs Villarreal", "score": "3 - 2", "code": "BVB/VIL", "actual": "Home"},
+            {"title": "Napoli vs Arsenal", "score": "0 - 1", "code": "NAP/ARS", "actual": "Away"},
+            {"title": "Barcelona vs Feyenoord", "score": "5 - 1", "code": "BAR/FEY", "actual": "Home"},
+            {"title": "Liverpool vs Atletico Madrid", "score": "2 - 1", "code": "LIV/ATM", "actual": "Home"},
+            {"title": "Porto vs Manchester City", "score": "0 - 2", "code": "POR/MCI", "actual": "Away"},
+            {"title": "Real Madrid vs Inter Milan", "score": "2 - 1", "code": "RMA/INT", "actual": "Home"},
+            {"title": "PSG vs Slovan Bratislava", "score": "6 - 1", "code": "PSG/SLB", "actual": "Home"},
+            {"title": "Bayern Munich vs Bodo/Glimt", "score": "5 - 0", "code": "BAY/BOD", "actual": "Home"},
+            {"title": "Manchester United vs Sabah", "score": "4 - 0", "code": "MUN/SAB", "actual": "Home"},
         ]
     }
 }
@@ -274,6 +275,18 @@ class SheetService:
         # 4A. Parse Historical Rounds predictions (R1, R2, R3, R4, R5)
         for r_id, r_meta in ARCHIVED_ROUNDS.items():
             r_matches = r_meta["matches"]
+            
+            # Check if organizer entered exact matches/scores in AB..AK on row_start
+            start_row = form_rows.get(r_meta["row_start"], {})
+            side_cols = ["AB", "AC", "AD", "AE", "AF", "AG", "AH", "AI", "AJ", "AK"]
+            for idx, col in enumerate(side_cols):
+                if idx < len(r_matches):
+                    side_val = start_row.get(col, "").strip()
+                    if side_val:
+                        m_sc = re.search(r'\s+(\d+(?:\s*\(\d+\))?)\s*-\s*(\d+(?:\s*\(\d+\))?)\s+', side_val)
+                        if m_sc:
+                            r_matches[idx]["score"] = f"{m_sc.group(1)} - {m_sc.group(2)}"
+
             r_votes = {m["title"]: {"Home": 0, "Draw": 0, "Away": 0, "Total": 0, "actual": m["actual"]} for m in r_matches}
 
             for r_num in range(r_meta["row_start"], r_meta["row_end"] + 1):
@@ -299,6 +312,7 @@ class SheetService:
 
                     user_preds.append({
                         "match": m["title"],
+                        "score": m.get("score", ""),
                         "prediction": pred_val,
                         "actual": actual_val,
                         "correct": is_correct,
@@ -314,6 +328,7 @@ class SheetService:
                 tot = stats["Total"] if stats["Total"] > 0 else 1
                 r_dist.append({
                     "match": m["title"],
+                    "score": m.get("score", ""),
                     "actual": stats["actual"],
                     "home": stats["Home"],
                     "draw": stats["Draw"],
@@ -347,6 +362,7 @@ class SheetService:
 
                 user_preds.append({
                     "match": m["title"],
+                    "score": "",
                     "prediction": pred_val,
                     "actual": None,  # Pending
                     "correct": None,
@@ -365,6 +381,7 @@ class SheetService:
             tot = stats["Total"] if stats["Total"] > 0 else 1
             r6_dist.append({
                 "match": m["title"],
+                "score": "",
                 "actual": None,
                 "home": stats["Home"],
                 "draw": stats["Draw"],
