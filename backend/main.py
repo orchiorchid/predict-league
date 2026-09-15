@@ -16,7 +16,15 @@ logging.basicConfig(level=logging.INFO)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FRONTEND_DIR = os.path.join(ROOT, "frontend")
 
+class _NoServerLive:
+    """SERVER_LIVE_SCORES=0 skips ESPN on the server; browsers then load live scores themselves."""
+
+    def resolve(self, *_):
+        raise RuntimeError("disabled by SERVER_LIVE_SCORES=0")
+
+
 service = LeagueService(
+    live=_NoServerLive() if os.environ.get("SERVER_LIVE_SCORES", "1") == "0" else None,
     spreadsheet_id=os.environ.get("SPREADSHEET_ID", DEFAULT_SPREADSHEET_ID),
     ttl_seconds=float(os.environ.get("CACHE_TTL_SECONDS", "60")),
     data_dir=os.environ.get("DATA_DIR", os.path.join(ROOT, "data")),

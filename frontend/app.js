@@ -153,6 +153,10 @@ async function load({ force = false } = {}) {
     const res = await fetch('/api/league', { cache: 'no-store' });
     if (!res.ok) throw new Error(`Server responded ${res.status}`);
     const data = await res.json();
+    const firstLoad = !state.data;
+    const overlay = applyBrowserLive(data);
+    // On refreshes wait for live scores so the page does not flash back to "pending".
+    if (!firstLoad) await Promise.race([overlay, new Promise((resolve) => setTimeout(resolve, 5000))]);
     state.data = data;
     state.players = new Map(data.players.map((p) => [p.key, p]));
     state.fetchedAt = Date.now() - (data.meta.age_seconds || 0) * 1000;
@@ -161,6 +165,10 @@ async function load({ force = false } = {}) {
     if (!state.roundId || !roundById(state.roundId)) state.roundId = data.current_round;
     if (state.me && !state.players.has(state.me)) state.me = null;
     renderAll();
+    if (firstLoad && (await overlay) && state.data === data) {
+      state.players = new Map(data.players.map((p) => [p.key, p]));
+      renderAll();
+    }
   } catch (err) {
     state.failed = true;
     console.error(err);
@@ -189,6 +197,194 @@ document.addEventListener('visibilitychange', () => {
   else schedule();
 });
 
+/* ------------------------------------------------------------------ live scores in the browser */
+/* ESPN blocks some hosting providers. When the server could not load live scores, the page asks
+   ESPN directly (it allows cross-origin requests) and scores the open round itself, using the
+   same team matching as the server (backend/live.py). */
+
+const TEAM_ALIASES = [
+  [/\bman utd\b|\bman united\b/g, 'manchester united'],
+  [/\bman city\b/g, 'manchester city'],
+  [/\bnott'?m\b|\bnotts forest\b/g, 'nottingham'],
+  [/\bspurs\b/g, 'tottenham'],
+  [/\bwolves\b/g, 'wolverhampton'],
+  [/\bsheff\b/g, 'sheffield'],
+  [/\bweds?\b/g, 'wednesday'],
+  [/\butd\b/g, 'united'],
+  [/\bwest brom\b/g, 'west bromwich'],
+  [/\bqpr\b/g, 'queens park rangers'],
+  [/\bmk dons\b/g, 'milton keynes dons'],
+  [/\bb\. ?dortmund\b|\bbvb\b/g, 'borussia dortmund'],
+  [/\bm'gladbach\b|\bgladbach\b/g, 'borussia monchengladbach'],
+  [/\batleti\b/g, 'atletico madrid'],
+  [/\binter\b/g, 'internazionale'],
+  [/\bpsg\b|^paris$/g, 'paris saint germain'],
+  [/\bs\. ?bratislava\b/g, 'slovan bratislava'],
+  [/\bmunchen\b|\bmuenchen\b/g, 'munich'],
+  [/\bleverkusen\b/g, 'bayer leverkusen'],
+  [/\bpsv\b/g, 'psv eindhoven'],
+  [/\bsporting\b/g, 'sporting cp'],
+];
+const STOP_WORDS = new Set(['fc', 'afc', 'cf', 'sc', 'ac', 'the', 'de', 'and', 'club']);
+
+function teamTokens(name) {
+  let n = (name || '').toLowerCase().replace(/ø/g, 'o').replace(/æ/g, 'ae').replace(/ß/g, 'ss')
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '');
+  for (const [re, rep] of TEAM_ALIASES) n = n.replace(re, rep);
+  return new Set((n.match(/[a-z0-9]+/g) || []).filter((w) => !STOP_WORDS.has(w)));
+}
+
+function similarity(a, b) {
+  if (!a.size || !b.size) return 0;
+  let common = 0;
+  for (const w of a) if (b.has(w)) common += 1;
+  return common / Math.min(a.size, b.size);
+}
+
+function outcomeOf(home, away, homePens, awayPens) {
+  if (home === away && homePens !== null && awayPens !== null && homePens !== awayPens) {
+    home = homePens;
+    away = awayPens;
+  }
+  return home > away ? 'Home' : away > home ? 'Away' : 'Draw';
+}
+
+function parseEspnEvent(ev) {
+  const comp = (ev.competitions || [])[0];
+  const cs = (comp && comp.competitors) || [];
+  const home = cs.find((c) => c.homeAway === 'home');
+  const away = cs.find((c) => c.homeAway === 'away');
+  if (!home || !away) return null;
+  const type = (ev.status && ev.status.type) || {};
+  let status = 'scheduled';
+  if (/POSTPONED|CANCELED|CANCELLED|ABANDONED|SUSPENDED/.test(type.name || '')) status = 'postponed';
+  else if (type.state === 'post' && type.completed) status = 'final';
+  else if (type.state === 'in') status = 'live';
+  const num = (v) => (v === undefined || v === null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
+  const hs = num(home.score);
+  const as = num(away.score);
+  const hp = num(home.shootoutScore);
+  const ap = num(away.shootoutScore);
+  let score = null;
+  let outcome = null;
+  if ((status === 'live' || status === 'final') && hs !== null && as !== null) {
+    score = hp !== null && ap !== null ? `${hs} (${hp}) - ${as} (${ap})` : `${hs} - ${as}`;
+    outcome = outcomeOf(hs, as, hp, ap);
+  }
+  return {
+    home: teamTokens((home.team || {}).displayName),
+    away: teamTokens((away.team || {}).displayName),
+    kickoff: ev.date ? new Date(ev.date) : null,
+    status, detail: type.shortDetail || '', score, outcome,
+  };
+}
+
+const espnCache = new Map();
+
+async function espnEvents(feed) {
+  const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${feed.league}/scoreboard?dates=${feed.dates}&limit=300`;
+  const hit = espnCache.get(url);
+  if (hit && Date.now() - hit.at < 40000) return hit.events;
+  const res = await fetch(url, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`ESPN responded ${res.status}`);
+  const json = await res.json();
+  const events = (json.events || []).map(parseEspnEvent).filter(Boolean);
+  espnCache.set(url, { at: Date.now(), events });
+  return events;
+}
+
+function competitionRanks(players, value) {
+  const ranks = new Map();
+  let prevValue = null;
+  let prevRank = 0;
+  [...players].sort((a, b) => value(b) - value(a)).forEach((p, i) => {
+    if (value(p) !== prevValue) { prevRank = i + 1; prevValue = value(p); }
+    ranks.set(p.key, prevRank);
+  });
+  return ranks;
+}
+
+/** Re-score the open round from ESPN when the server could not. Returns true if data changed. */
+async function applyBrowserLive(data) {
+  const r = data.rounds.find((x) => x.id === data.current_round);
+  if (!r || r.official || !r.live_feed || r.live_feed.server_ok) return false;
+  let events;
+  try {
+    events = await espnEvents(r.live_feed);
+  } catch (err) {
+    console.warn('Live scores are unavailable in the browser too', err);
+    return false;
+  }
+
+  const earliest = new Date(r.live_feed.earliest);
+  for (const m of r.matches) {
+    if (m.confirmed) continue;
+    const ht = teamTokens(m.home);
+    const at = teamTokens(m.away);
+    let best = null;
+    let bestScore = 0;
+    for (const ev of events) {
+      if (ev.kickoff && ev.kickoff < earliest) continue;
+      const sc = Math.min(similarity(ht, ev.home), similarity(at, ev.away));
+      if (sc < 0.5) continue;
+      if (!best || sc > bestScore || (sc === bestScore && ev.kickoff && best.kickoff && ev.kickoff < best.kickoff)) {
+        best = ev;
+        bestScore = sc;
+      }
+    }
+    if (!best) continue;
+    Object.assign(m, {
+      status: best.status, score: best.score, outcome: best.outcome, detail: best.detail,
+      kickoff: best.kickoff ? best.kickoff.toISOString() : null,
+    });
+  }
+
+  const finals = r.matches.filter((m) => m.status === 'final').length;
+  const states = new Set(r.matches.map((m) => m.status));
+  if (finals && [...states].every((st) => ['final', 'postponed', 'void'].includes(st))) r.status = 'completed';
+  else if (states.has('live') || finals) r.status = 'live';
+  else r.status = 'upcoming';
+  r.first_kickoff = r.matches.map((m) => m.kickoff).filter(Boolean).sort()[0] || null;
+  for (const m of r.matches) {
+    const decided = (m.status === 'final' || m.status === 'live') && m.outcome;
+    m.correct_pct = decided && m.dist.total ? Math.round((100 * m.dist[m.outcome.toLowerCase()]) / m.dist.total) : null;
+  }
+
+  const serverRanks = new Map(data.players.map((p) => [p.key, p.rank]));
+  const scores = [];
+  for (const p of data.players) {
+    if (!(r.id in p.rounds)) continue;
+    const code = (data.picks[r.id] || {})[p.key] || '';
+    let pts = 0;
+    let live = 0;
+    r.matches.forEach((m, i) => {
+      if (PICK_CODES[code[i]] !== m.outcome || !m.outcome) return;
+      if (m.status === 'final') pts += 1;
+      else if (m.status === 'live') live += 1;
+    });
+    p.total = p.total - (p.rounds[r.id] || 0) + (finals ? pts : 0);
+    p.rounds[r.id] = finals ? pts : null;
+    p.live = live;
+    if (finals) scores.push(pts);
+  }
+  if (finals) {
+    const ranks = competitionRanks(data.players, (p) => p.total);
+    for (const p of data.players) {
+      p.rank = ranks.get(p.key);
+      p.prev_rank = p.played === 1 && r.id in p.rounds ? null : serverRanks.get(p.key);
+      p.movement = p.prev_rank ? p.prev_rank - p.rank : null;
+    }
+    data.players.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    r.stats = {
+      average: Math.round((100 * scores.reduce((a, b) => a + b, 0)) / scores.length) / 100,
+      top: Math.max(...scores),
+      perfect: scores.filter((x) => x === r.matches.length).length,
+    };
+  }
+  r.live_feed.browser_ok = true;
+  return true;
+}
+
 /* ------------------------------------------------------------------ top bar & banners */
 
 function renderSync() {
@@ -212,7 +408,8 @@ function renderBanner() {
   }
   banner.hidden = !meta.stale;
   for (const a of [$('#sheet-link'), $('#footer-sheet')]) a.href = meta.spreadsheet_url;
-  const notes = state.data.warnings || [];
+  const liveInBrowser = state.data.rounds.some((r) => r.live_feed && r.live_feed.browser_ok);
+  const notes = (state.data.warnings || []).filter((n) => !(liveInBrowser && n.startsWith('Live scores unavailable')));
   $('#notes').hidden = !notes.length;
   $('#notes-count').textContent = notes.length ? `(${notes.length})` : '';
   $('#notes-list').replaceChildren(...notes.map((n) => h('li', { text: n })));

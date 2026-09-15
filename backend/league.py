@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from backend.live import format_score, outcome_from_scores
+from backend.live import espn_window, format_score, outcome_from_scores
 from backend.sheet import Grid, as_datetime
 
 OUTCOMES = ("Home", "Draw", "Away")
@@ -297,11 +297,18 @@ def build_league(
                        for m in layout.header_matches]
             info = describe_tag(tag)
             resolved: List[Optional[Dict[str, Any]]] = [None] * len(matches)
+            window = espn_window(info["code"], first_submission, now)
+            live_feed = None
+            if window:
+                live_feed = {"league": window["slug"], "dates": f"{window['start']:%Y%m%d}-{window['end']:%Y%m%d}",
+                             "earliest": _iso(window["earliest"]), "server_ok": False}
             if live and info["code"]:
                 try:
                     resolved = live(info["code"], matches, first_submission)
-                except Exception as exc:  # live scores are a bonus, never fatal
-                    warnings.append(f"Live scores unavailable: {exc}")
+                    if live_feed:
+                        live_feed["server_ok"] = True
+                except Exception as exc:  # live scores are a bonus, never fatal; the browser retries
+                    warnings.append(f"Live scores unavailable on the server ({exc}); browsers load them directly.")
             key = layout.answer_key
             # Row 1 holds the key of whichever round the organizer scored last. Trust it only once
             # this round's rows have points filled in, and never if it repeats the previous results.
@@ -339,6 +346,8 @@ def build_league(
                 warnings.append(f"Round {number} finished but has no results row yet; showing the organizer's points only.")
 
         info = describe_tag(tag)
+        if i != open_idx:
+            live_feed = None
         scored_points: Dict[str, Optional[float]] = {}
         live_points: Dict[str, int] = {}
         for e in seg_entries:
@@ -375,6 +384,7 @@ def build_league(
             "matches": matches,
             "entries": len(seg_entries),
             "opened": _iso(first_submission),
+            "live_feed": live_feed,
             "first_kickoff": min((m["kickoff"] for m in matches if m.get("kickoff")), default=None),
             "stats": {
                 "average": round(sum(scores) / len(scores), 2) if scores and has_results else None,

@@ -304,3 +304,16 @@ def test_service_keeps_last_good_data_when_google_fails(xlsx_bytes):
     data = svc.get(force=True)
     assert data["current_round"] == "r7"
     assert data["meta"]["stale"] is True and "Google is down" in data["meta"]["error"]
+
+
+def test_blocked_espn_tells_the_browser_where_to_load_live_scores(grid):
+    def blocked(*_):
+        raise RuntimeError("HTTP Error 403: Forbidden")
+
+    league = build_league(grid, live=blocked)
+    r7 = by_id(league, "r7")
+    assert r7["live_feed"]["league"] == "eng.league_cup"
+    assert r7["live_feed"]["server_ok"] is False
+    assert r7["status"] == "upcoming"
+    assert any("403" in w for w in league["warnings"])
+    assert by_id(league, "r6")["live_feed"] is None

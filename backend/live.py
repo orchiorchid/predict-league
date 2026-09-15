@@ -136,15 +136,28 @@ class LiveResults:
         self._cache: Dict[str, Any] = {}
         self._lock = threading.Lock()
 
+    HOSTS = ("site.api.espn.com", "site.web.api.espn.com")
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/126.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "en-GB,en;q=0.9",
+        "Referer": "https://www.espn.com/",
+        "Origin": "https://www.espn.com",
+    }
+
     def _fetch(self, slug: str, start: datetime, end: datetime) -> List[Dict[str, Any]]:
-        url = (
-            f"https://site.api.espn.com/apis/site/v2/sports/soccer/{slug}/scoreboard"
-            f"?dates={start:%Y%m%d}-{end:%Y%m%d}&limit=300"
-        )
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return [e for e in (parse_event(ev) for ev in data.get("events", [])) if e]
+        path = f"/apis/site/v2/sports/soccer/{slug}/scoreboard?dates={start:%Y%m%d}-{end:%Y%m%d}&limit=300"
+        last_error: Optional[Exception] = None
+        for host in self.HOSTS:
+            try:
+                req = urllib.request.Request(f"https://{host}{path}", headers=self.HEADERS)
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                return [e for e in (parse_event(ev) for ev in data.get("events", [])) if e]
+            except Exception as exc:  # try the next host
+                last_error = exc
+        raise last_error or RuntimeError("ESPN unavailable")
 
     @staticmethod
     def _ttl_for(events: List[Dict[str, Any]]) -> float:
@@ -175,32 +188,45 @@ class LiveResults:
 
     def resolve(self, competition: str, matches: List[Dict[str, str]], since: Optional[datetime]) -> List[Optional[Dict[str, Any]]]:
         """Find the ESPN fixture for each {home, away} match played on/after `since`."""
-        slug = ESPN_SLUGS.get(competition)
-        if not slug or not matches:
+        window = espn_window(competition, since)
+        if not window or not matches:
             return [None] * len(matches)
+        events = self.events(window["slug"], window["start"], window["end"])
+        return match_events(matches, events, window["earliest"])
 
-        now = datetime.now(timezone.utc)
-        since = since or (now - timedelta(days=3))
-        if since.tzinfo is None:
-            since = since.replace(tzinfo=timezone.utc)
-        start = since - timedelta(days=1)
-        end = max(since, now) + timedelta(days=10)
-        events = self.events(slug, start, end)
 
+def espn_window(competition: str, since: Optional[datetime], now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
+    """Which scoreboard to read for a round. The browser uses the same window when the server is blocked."""
+    slug = ESPN_SLUGS.get(competition or "")
+    if not slug:
+        return None
+    now = now or datetime.now(timezone.utc)
+    since = since or (now - timedelta(days=3))
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    return {
+        "slug": slug,
+        "start": since - timedelta(days=1),
+        "end": max(since, now) + timedelta(days=10),
         # Sheet timestamps carry no timezone, so allow a generous margin before the first submission.
-        earliest = since - timedelta(hours=18)
-        resolved = []
-        for m in matches:
-            home_t, away_t = team_tokens(m.get("home") or ""), team_tokens(m.get("away") or "")
-            best, best_key = None, None
-            for ev in events:
-                if ev["kickoff"] and ev["kickoff"] < earliest:
-                    continue
-                score = min(_similarity(home_t, team_tokens(ev["home_name"])), _similarity(away_t, team_tokens(ev["away_name"])))
-                if score < 0.5:
-                    continue
-                key = (-score, ev["kickoff"] or now)
-                if best_key is None or key < best_key:
-                    best, best_key = ev, key
-            resolved.append(best)
-        return resolved
+        "earliest": since - timedelta(hours=18),
+    }
+
+
+def match_events(matches: List[Dict[str, str]], events: List[Dict[str, Any]], earliest: datetime) -> List[Optional[Dict[str, Any]]]:
+    now = datetime.now(timezone.utc)
+    resolved = []
+    for m in matches:
+        home_t, away_t = team_tokens(m.get("home") or ""), team_tokens(m.get("away") or "")
+        best, best_key = None, None
+        for ev in events:
+            if ev["kickoff"] and ev["kickoff"] < earliest:
+                continue
+            score = min(_similarity(home_t, team_tokens(ev["home_name"])), _similarity(away_t, team_tokens(ev["away_name"])))
+            if score < 0.5:
+                continue
+            key = (-score, ev["kickoff"] or now)
+            if best_key is None or key < best_key:
+                best, best_key = ev, key
+        resolved.append(best)
+    return resolved
