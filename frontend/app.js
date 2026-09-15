@@ -157,6 +157,7 @@ async function load({ force = false } = {}) {
     state.players = new Map(data.players.map((p) => [p.key, p]));
     state.fetchedAt = Date.now() - (data.meta.age_seconds || 0) * 1000;
     state.failed = false;
+    $('.tabs').hidden = false;
     if (!state.roundId || !roundById(state.roundId)) state.roundId = data.current_round;
     if (state.me && !state.players.has(state.me)) state.me = null;
     renderAll();
@@ -221,6 +222,7 @@ function renderFatal(err) {
       h('button', { class: 'btn', type: 'button', onclick: () => load(), text: 'Try again' })),
   );
   $('#view-standings').replaceChildren();
+  $('.tabs').hidden = true;
   console.warn(err);
 }
 

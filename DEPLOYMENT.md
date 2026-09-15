@@ -49,6 +49,11 @@ Render is one of the easiest platforms to deploy FastAPI apps with free SSL and 
 6. Click **Create Web Service**.
 7. Render will build and deploy your app. Within 1–2 minutes, you will get a live public URL (e.g. `https://prediction-league.onrender.com`).
 
+> **Free plan note:** Render puts free services to sleep after 15 minutes without traffic, and the next
+> visitor waits up to a minute. The site fetches the sheet in the background on start-up, but to avoid the
+> wait entirely, point a free uptime monitor (e.g. UptimeRobot) at `https://<your-app>.onrender.com/api/health`
+> every 10 minutes.
+
 ---
 
 ## Option 2: Railway.app (Ultra Fast 1-Click Deploy)
@@ -179,7 +184,10 @@ sudo systemctl enable --now prediction
 
 ## 🔒 Summary of Environment Variables
 
-| Variable | Default Value | Description |
+| Variable | Default | Description |
 |---|---|---|
-| `SPREADSHEET_ID` | `1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4` | ID of the Google Sheet to extract predictions from |
-| `PORT` | `8000` | Port for the HTTP server |
+| `SPREADSHEET_ID` | `1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4` | Google Sheet to read (must be viewable by anyone with the link) |
+| `PORT` | `8000` | HTTP port |
+| `CACHE_TTL_SECONDS` | `60` | How often the sheet is re-read while people are browsing |
+| `DATA_DIR` | `./data` | Where fixture snapshots of the open round are kept (optional; a missing or wiped folder is fine) |
+| `WARM_UP` | `1` | Fetch the sheet in the background at start-up |

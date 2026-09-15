@@ -1,80 +1,68 @@
-# 🏆 Prediction League — Google Sheets Results & Standings Service
+# ⚽ Prediction League
 
-A real-time service for fetching data, calculating points, and displaying tournament standings and participant predictions from a Google Spreadsheet:
-`https://docs.google.com/spreadsheets/d/1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4/edit?gid=304172133`
+A website for the Reddit football prediction league. It reads the organizer's
+[Google Sheet](https://docs.google.com/spreadsheets/d/1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4/edit?gid=304172133)
+and shows standings, every round's fixtures and picks, and live scores for the round in play.
 
----
+- **Standings**: shared ranks, movement since the last round, points per round, accuracy.
+- **Current round**: kick-off countdown, live scores (ESPN), provisional points while matches are played.
+- **Rounds**: fixtures with results, how the league picked (1 / X / 2), round table with everyone's picks.
+- **Player profile**: points chart against the round average, all picks with how many others made the same call.
+- **"This is me"**: pin your name once and it is highlighted everywhere (stored in your browser only).
+- Shareable links: `/?player=sockodile`, `/?round=r6`.
 
-## 🌟 Key Features
-
-1. **Direct Google Sheets Live Synchronization**:
-   - Queries Google Sheets directly to parse live responses, round scores, and overall standings.
-   - Automatically computes points on the fly for rows 174+ (where the spreadsheet author hasn't dragged formulas down yet) by matching predictions against the master match outcomes in row 0.
-   - Built-in 15-second cache to prevent Google rate-limits, with a **"Refresh"** button (`fresh=true`) to force instant re-fetching anytime.
-2. **Case-Insensitive Username Aggregation**:
-   - Automatically merges variations in username casing (e.g. `qqq666` and `Qqq666`, `sockodile` and `Sockodile`, `kopite33` and `Kopite33`) into a single unified participant profile with combined points and predictions across all rounds.
-3. **Personal Results & Search**:
-   - Fast autocomplete search by username or alias.
-   - Detailed profile modal: overall rank (with 🥇, 🥈, 🥉 badges), total tournament points, and points breakdown across Round 1, Round 2, Round 3, Round 4, and Round 5.
-   - Full 10-match prediction breakdown for current round with visual indicators for correct (+1 pt) and incorrect (0 pts) predictions.
-   - Direct shareable URLs (e.g. `http://localhost:8000/?user=sockodile`).
-4. **Interactive Leaderboard**:
-   - Tab navigation: "Overall Standings", "Round 5 (UCL MD1)", "Round 4", "Round 3", "Round 2", "Round 1".
-   - In-table instant search/filtering by nickname.
-   - Clicking any participant row immediately opens their full profile.
-5. **Community Match Statistics**:
-   - Segmented distribution bars showing the percentage of participants voting for Home Win (1), Draw (X), or Away Win (2) for each match.
-
----
-
-## 🚀 Quick Start
-
-### Option 1: Run with Python Locally
+## Run it
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
-
-# 2. Run the application
-python run.py
+python run.py            # http://localhost:8000, API docs at /docs
 ```
 
-Open your browser:
-- Web App: [http://localhost:8000](http://localhost:8000)
-- Swagger API Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+or `docker compose up --build`. Deployment options are in [DEPLOYMENT.md](DEPLOYMENT.md).
 
-### Option 2: Run with Docker Compose
+## How the sheet is read
+
+Nothing about rounds is hardcoded. Everything comes from the **Form Responses 1** tab:
+
+| Where | What the site uses it for |
+|---|---|
+| Row 1, C–L | The open form's matches, e.g. `LC R3 [Peterborough vs Barnsley]`. The tag before `[` names the competition and stage. |
+| Row 1, P–Y | Answer key. Used only for the round in play, and only once that round's rows have points in column O. |
+| A, B, C–L | Timestamp, username, picks. |
+| N, O | Username as corrected by the organizer (preferred over B) and round points. |
+| AA, AB–AK on the **first row of a round** | Tag and results (`Aston Villa 1 - 2 Nott'm Forest`, penalties as `1 (4) - 1 (5)`). A round with this row is **Final**. |
+
+Rounds after the last results row are handled like this:
+
+1. Submissions are split into rounds where there is a pause of 30+ hours between two entries,
+   or where scored rows are followed by unscored ones.
+2. If the form header shows a new tag, the last group is the **round in play**. Its results come
+   from ESPN (League Cup, FA Cup, Premier League, UEFA competitions). Points are provisional
+   until the organizer writes the results row.
+3. A finished round whose results row is missing is shown as **Awaiting results**. It uses the
+   organizer's points from column O and the fixture names the site saved while the round was open.
+
+If the sheet and the results row ever disagree, column O wins, so manual corrections are respected.
+Usernames are merged case-insensitively, and a leading `u/` is ignored.
+
+## API
+
+| Endpoint | |
+|---|---|
+| `GET /api/league` | Rounds (matches, results, pick distribution), players (totals, per-round points, rank, movement), compact picks |
+| `GET /api/players/{name}` | One player with every pick and whether it was right |
+| `POST /api/refresh` | Re-read the sheet now (at most once per 20 s) |
+| `GET /api/health` | Liveness check |
+
+Responses are cached for 60 s. When Google or ESPN fails, the last good data is served with `meta.stale = true`.
+
+## Tests
 
 ```bash
-docker-compose up --build
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
----
-
-## 🌐 Deploy to Cloud (Render, Railway, Fly.io, VPS)
-
-For a complete step-by-step guide on how to deploy this project for free or on a server, see:
-👉 **[DEPLOYMENT.md](DEPLOYMENT.md)**
-
----
-
-## 📡 REST API Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/data` | Returns complete tournament data. Add `?fresh=true` to force re-fetch from Google Sheets. |
-| `GET` | `/api/user/{username}` | Returns participant profile, round breakdown, and match predictions (case-insensitive). |
-| `GET` | `/api/search?q={query}` | Fast autocomplete search for usernames and aliases. |
-| `GET` | `/api/matches` | Current round match voting distribution statistics. |
-| `GET` | `/api/rounds/{round_id}` | Leaderboard for a specific round (`r1`, `r2`, `r3`, `r4`, `r5`). |
-| `POST` | `/api/refresh` | Forces cache invalidation and immediate re-fetch from Google Sheets. |
-
----
-
-## 🧪 Testing
-
-Run the automated test suite:
-```bash
-python tests/test_service.py
-```
-Validates Google Sheets connectivity, case-insensitive merging (`qqq666` & `Qqq666`), scoring accuracy, and all REST API routes.
+The tests run offline against a saved copy of the sheet (`tests/fixtures`). They also rewind it to
+simulate the transition periods: a round finished but not yet published, a new form opened before
+results were written, and the answer key still holding the previous round.

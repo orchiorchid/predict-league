@@ -1,11 +1,13 @@
-version: '3.8'
-
 services:
   prediction-league:
     build: .
-    container_name: prediction_league_app
     ports:
       - "8000:8000"
     environment:
       - SPREADSHEET_ID=1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4
+    volumes:
+      - league-data:/app/data
     restart: unless-stopped
+
+volumes:
+  league-data:
