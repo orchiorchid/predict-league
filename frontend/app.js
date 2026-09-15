@@ -212,6 +212,10 @@ function renderBanner() {
   }
   banner.hidden = !meta.stale;
   for (const a of [$('#sheet-link'), $('#footer-sheet')]) a.href = meta.spreadsheet_url;
+  const notes = state.data.warnings || [];
+  $('#notes').hidden = !notes.length;
+  $('#notes-count').textContent = notes.length ? `(${notes.length})` : '';
+  $('#notes-list').replaceChildren(...notes.map((n) => h('li', { text: n })));
 }
 
 function renderFatal(err) {

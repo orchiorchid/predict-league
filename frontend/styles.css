@@ -439,6 +439,7 @@ main { padding-top: 16px; padding-bottom: 32px; }
 .rules { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 12px 14px; }
 .rules summary { cursor: pointer; font-weight: 650; color: var(--text); }
 .rules ul { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; }
+.rules + .rules { margin-top: 8px; }
 .footer__meta { margin-top: 14px; text-align: center; font-size: 13px; color: var(--faint); }
 
 .toast {

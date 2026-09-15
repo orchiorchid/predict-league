@@ -238,6 +238,16 @@ def test_snapshot_restores_titles_of_unpublished_round(grid):
     assert player(league, "mchto")["rounds"]["r6"] == 6
 
 
+def test_open_round_found_without_tag_in_form_questions(grid):
+    g = copy.deepcopy(grid)
+    for col in MATCH_COLS:
+        g[1][col] = g[1][col].split("[", 1)[1].rstrip("]")
+    league = build_league(g, live=no_live)
+    r7 = by_id(league, "r7")
+    assert r7["entries"] == 26 and r7["matches"][0]["home"] == "Peterborough"
+    assert league["current_round"] == "r7"
+
+
 # ---------------------------------------------------------------- API
 
 class FakeLive:

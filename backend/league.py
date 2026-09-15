@@ -248,7 +248,14 @@ def build_league(
         segments.extend({"entries": p, "marker": None} for p in split_unmarked(entries))
 
     marked_tags = {str(grid[s["marker"]][layout.tag_col]).strip().upper() for s in segments if s["marker"]}
-    header_is_new = bool(layout.header_tag) and layout.header_tag.strip().upper() not in marked_tags
+    if layout.header_tag:
+        header_is_new = layout.header_tag.strip().upper() not in marked_tags
+    else:
+        # No "TAG [..]" in the form questions: compare fixtures with the last published round instead.
+        last_marker = max((s["marker"] for s in segments if s["marker"]), default=None)
+        last_titles = {parse_result(grid[last_marker].get(c, ""))["home"] for c in layout.result_cols} if last_marker else set()
+        header_homes = {m["home"] for m in layout.header_matches if m["home"]}
+        header_is_new = bool(header_homes) and header_homes != last_titles
     unmarked_idx = [i for i, s in enumerate(segments) if not s["marker"]]
 
     if header_is_new and not unmarked_idx:

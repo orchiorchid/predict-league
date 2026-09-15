@@ -90,8 +90,10 @@ class LeagueService:
         self._fetched_at = time.time()
         self._last_error = None
 
-    def refresh(self) -> None:
+    def refresh(self, max_age: float = 0) -> None:
         with self._refresh_lock:
+            if self._payload is not None and time.time() - self._fetched_at < max_age:
+                return  # someone else refreshed while we waited for the lock
             try:
                 self._build()
             except Exception as exc:
@@ -118,9 +120,9 @@ class LeagueService:
     def get(self, force: bool = False) -> Dict[str, Any]:
         age = time.time() - self._fetched_at
         if self._payload is None:
-            self.refresh()
+            self.refresh(max_age=self.ttl)
         elif force and age >= self.min_force_interval:
-            self.refresh()
+            self.refresh(max_age=self.min_force_interval)
         elif age >= self.ttl:
             self._refresh_in_background()  # serve what we have, update for the next request
         return self._with_meta()
