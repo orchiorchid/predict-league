@@ -1,1139 +1,800 @@
-// Prediction League App Client with Responsive Modal & Mobile Tricks
+'use strict';
 
-let globalData = null;
-let currentTab = 'overall';
-let currentCategory = 'all'; // 'all', 'PL', 'UCL', 'CUP'
-let currentDistRound = 'r6';
-let selectedUser = null;
-let currentUserProfileData = null;
-let selectedModalRound = 'r6';
-let modalCurrentCategory = 'all'; // 'all', 'PL', 'UCL', 'CUP'
-let isModalRoundsExpanded = false;
-let lastSyncTimestamp = null;
+/* ------------------------------------------------------------------ helpers */
 
-// DOM Elements
-const syncStatusEl = document.getElementById('sync-status');
-const syncDot = document.getElementById('sync-dot');
-const syncSpinner = document.getElementById('sync-spinner');
+const $ = (sel, root = document) => root.querySelector(sel);
 
-const refreshBtn = document.getElementById('refresh-btn');
-const refreshIcon = document.getElementById('refresh-icon');
-const refreshSpinner = document.getElementById('refresh-spinner');
-const refreshText = document.getElementById('refresh-text');
-
-const searchInput = document.getElementById('search-input');
-const searchClear = document.getElementById('search-clear');
-const searchSpinner = document.getElementById('search-spinner');
-const autocompleteList = document.getElementById('autocomplete-list');
-const quickChips = document.getElementById('quick-chips');
-
-// Navigation & Category Elements
-const roundJumpSelect = document.getElementById('round-jump-select');
-const tournamentCategoryFilters = document.getElementById('tournament-category-filters');
-const modalCatFilters = document.getElementById('modal-cat-filters');
-const toggleAllRoundsBtn = document.getElementById('toggle-all-rounds-btn');
-const modalRoundsWrapper = document.getElementById('modal-rounds-wrapper');
-const toggleRoundsText = document.getElementById('toggle-rounds-text');
-const toggleRoundsIcon = document.getElementById('toggle-rounds-icon');
-
-// Modal Elements
-const userModal = document.getElementById('user-modal');
-const modalBackdrop = document.getElementById('modal-backdrop');
-const closeModalBtn = document.getElementById('close-modal-btn');
-const copyLinkBtn = document.getElementById('copy-link-btn');
-const modalLoadingOverlay = document.getElementById('modal-loading-overlay');
-
-const profileUsername = document.getElementById('profile-username');
-const profileRank = document.getElementById('profile-rank');
-const profileTotalScore = document.getElementById('profile-total-score');
-const profileMedal = document.getElementById('profile-medal');
-const profileAvatar = document.getElementById('user-avatar');
-const profileRoundsGrid = document.getElementById('profile-rounds-grid');
-const profilePredictionsContainer = document.getElementById('profile-predictions-container');
-const profilePredictionsTitle = document.getElementById('profile-predictions-title');
-const profileR5SummaryBadge = document.getElementById('profile-r5-summary-badge');
-const profileAliasesBadge = document.getElementById('profile-aliases-badge');
-const modalRoundTabs = document.getElementById('modal-round-tabs');
-
-const tabsContainer = document.getElementById('tabs-container');
-const distTabsContainer = document.getElementById('dist-tabs-container');
-const tableHeaders = document.getElementById('table-headers');
-const tableBody = document.getElementById('table-body');
-const tableFilterInput = document.getElementById('table-filter-input');
-const tableCountLabel = document.getElementById('table-count-label');
-
-const matchesGrid = document.getElementById('matches-grid');
-
-// ==========================================
-// Initialization
-// ==========================================
-document.addEventListener('DOMContentLoaded', async () => {
-  setupEventListeners();
-  await loadData(false);
-
-  // Check URL params for pre-selected user
-  const urlParams = new URLSearchParams(window.location.search);
-  const userParam = urlParams.get('user');
-  if (userParam) {
-    selectUser(userParam);
+/** Build DOM nodes. Strings become text nodes, so user data is never parsed as HTML. */
+function h(tag, props, ...children) {
+  const el = document.createElement(tag);
+  for (const [key, value] of Object.entries(props || {})) {
+    if (value === null || value === undefined || value === false) continue;
+    if (key === 'class') el.className = value;
+    else if (key === 'text') el.textContent = value;
+    else if (key === 'style') el.setAttribute('style', value);
+    else if (key.startsWith('on')) el.addEventListener(key.slice(2), value);
+    else if (key === 'dataset') Object.assign(el.dataset, value);
+    else el.setAttribute(key, value === true ? '' : value);
   }
-
-  // Auto update relative time every 10 seconds
-  setInterval(updateRelativeSyncTime, 10000);
-});
-
-function setupEventListeners() {
-  // Refresh button
-  refreshBtn.addEventListener('click', async () => {
-    setRefreshLoading(true);
-    try {
-      await loadData(true);
-      showToast('Data refreshed from Google Sheets!', 'refresh-cw');
-      if (selectedUser) {
-        await selectUser(selectedUser);
-      }
-    } finally {
-      setRefreshLoading(false);
-    }
-  });
-
-  // Search input with debounce and search spinner
-  let debounceTimeout = null;
-  searchInput.addEventListener('input', (e) => {
-    const val = e.target.value.trim();
-    if (val.length === 0) {
-      searchClear.classList.add('hidden');
-      searchSpinner.classList.add('hidden');
-      autocompleteList.classList.add('hidden');
-      clearTimeout(debounceTimeout);
-      return;
-    }
-
-    // Show search spinner while typing/debouncing
-    searchClear.classList.add('hidden');
-    searchSpinner.classList.remove('hidden');
-
-    clearTimeout(debounceTimeout);
-    debounceTimeout = setTimeout(() => {
-      handleSearchInput(val);
-      searchSpinner.classList.add('hidden');
-      searchClear.classList.remove('hidden');
-    }, 180);
-  });
-
-  searchClear.addEventListener('click', () => {
-    searchInput.value = '';
-    searchClear.classList.add('hidden');
-    searchSpinner.classList.add('hidden');
-    autocompleteList.classList.add('hidden');
-    searchInput.focus();
-  });
-
-  // Close autocomplete on click outside
-  document.addEventListener('click', (e) => {
-    if (!document.getElementById('search-container').contains(e.target)) {
-      autocompleteList.classList.add('hidden');
-    }
-  });
-
-  // Modal close handlers
-  closeModalBtn.addEventListener('click', closeModal);
-  modalBackdrop.addEventListener('click', closeModal);
-
-  // ESC key to close modal
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !userModal.classList.contains('hidden')) {
-      closeModal();
-    }
-  });
-
-  // Back button handling on mobile
-  window.addEventListener('popstate', (e) => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const userParam = urlParams.get('user');
-    if (!userParam && !userModal.classList.contains('hidden')) {
-      closeModal(false);
-    } else if (userParam) {
-      selectUser(userParam, false);
-    }
-  });
-
-  // Copy Profile Link Button
-  copyLinkBtn.addEventListener('click', () => {
-    if (!selectedUser) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set('user', selectedUser);
-    navigator.clipboard.writeText(url.href).then(() => {
-      showToast('Profile link copied to clipboard!', 'check');
-    }).catch(() => {
-      showToast('Failed to copy link', 'x');
-    });
-  });
-
-  // Table tabs
-  tabsContainer.addEventListener('click', (e) => {
-    const btn = e.target.closest('.tab-btn');
-    if (!btn) return;
-    const tab = btn.getAttribute('data-tab');
-    if (tab && tab !== currentTab) {
-      currentTab = tab;
-      updateActiveTabUI();
-      renderLeaderboardTable();
-    }
-  });
-
-  // Tournament Category Filters (All, PL, UCL, Cups)
-  if (tournamentCategoryFilters) {
-    tournamentCategoryFilters.addEventListener('click', (e) => {
-      const btn = e.target.closest('.cat-filter-btn');
-      if (!btn) return;
-      const cat = btn.getAttribute('data-cat');
-      if (cat && cat !== currentCategory) {
-        currentCategory = cat;
-        updateCategoryFilterUI();
-        renderTabsNavigation();
-        renderLeaderboardTable();
-      }
-    });
-  }
-
-  // Quick Jump Select dropdown for 50+ rounds
-  if (roundJumpSelect) {
-    roundJumpSelect.addEventListener('change', (e) => {
-      const val = e.target.value;
-      if (val) {
-        currentTab = val;
-        updateActiveTabUI();
-        renderLeaderboardTable();
-      }
-    });
-  }
-
-  // Table filter
-  tableFilterInput.addEventListener('input', () => {
-    renderLeaderboardTable();
-  });
-
-  // Distribution round tabs
-  if (distTabsContainer) {
-    distTabsContainer.addEventListener('click', (e) => {
-      const btn = e.target.closest('.dist-tab-btn');
-      if (!btn) return;
-      const round = btn.getAttribute('data-dist-tab');
-      if (round && round !== currentDistRound) {
-        currentDistRound = round;
-        updateDistTabsUI();
-        renderMatchDistributions();
-      }
-    });
-  }
-
-  // Modal Category Filters (All, PL, UCL, Cups)
-  if (modalCatFilters) {
-    modalCatFilters.addEventListener('click', (e) => {
-      const btn = e.target.closest('.mcat-btn');
-      if (!btn) return;
-      const cat = btn.getAttribute('data-mcat');
-      if (cat && cat !== modalCurrentCategory) {
-        modalCurrentCategory = cat;
-        updateModalCategoryFilterUI();
-        if (currentUserProfileData) {
-          // If the currently selected round does not belong to the selected category,
-          // switch to the best matching round in this category (active round or latest)
-          const matchingRounds = (currentUserProfileData.round_scores || []).filter(rs => {
-            if (cat === 'all') return true;
-            return getRoundCategory(rs.round_name) === cat;
-          });
-          if (matchingRounds.length > 0) {
-            const currentStillMatches = matchingRounds.some(rs => rs.round_id === selectedModalRound);
-            if (!currentStillMatches) {
-              const activeInCat = matchingRounds.find(rs => rs.status === 'active' || rs.round_id === 'r6');
-              selectedModalRound = activeInCat ? activeInCat.round_id : matchingRounds[matchingRounds.length - 1].round_id;
-            }
-          }
-          renderUserProfileRoundCards(currentUserProfileData);
-          renderRoundPredictions(selectedModalRound);
-        }
-      }
-    });
-  }
-
-  // Modal Accordion toggle button (Expand all cards / Collapse)
-  if (toggleAllRoundsBtn && modalRoundsWrapper) {
-    toggleAllRoundsBtn.addEventListener('click', () => {
-      isModalRoundsExpanded = !isModalRoundsExpanded;
-      if (isModalRoundsExpanded) {
-        modalRoundsWrapper.classList.remove('max-h-[175px]', 'sm:max-h-[220px]');
-        modalRoundsWrapper.classList.add('max-h-[600px]');
-        if (toggleRoundsText) toggleRoundsText.textContent = 'Collapse';
-        if (toggleRoundsIcon) toggleRoundsIcon.classList.add('rotate-180');
-      } else {
-        modalRoundsWrapper.classList.remove('max-h-[600px]');
-        modalRoundsWrapper.classList.add('max-h-[175px]', 'sm:max-h-[220px]');
-        if (toggleRoundsText) toggleRoundsText.textContent = 'Expand All';
-        if (toggleRoundsIcon) toggleRoundsIcon.classList.remove('rotate-180');
-      }
-      if (window.lucide) lucide.createIcons();
-    });
-  }
+  append(el, children);
+  return el;
 }
 
-function setRefreshLoading(isLoading) {
-  if (isLoading) {
-    refreshBtn.disabled = true;
-    refreshIcon.classList.add('hidden');
-    refreshSpinner.classList.remove('hidden');
-    refreshText.textContent = 'Refreshing...';
-    syncDot.classList.add('hidden');
-    syncSpinner.classList.remove('hidden');
-    syncStatusEl.textContent = 'Syncing with Google Sheets...';
-  } else {
-    refreshBtn.disabled = false;
-    refreshSpinner.classList.add('hidden');
-    refreshIcon.classList.remove('hidden');
-    refreshText.textContent = 'Refresh';
-    syncSpinner.classList.add('hidden');
-    syncDot.classList.remove('hidden');
+function append(el, children) {
+  for (const child of children.flat(Infinity)) {
+    if (child === null || child === undefined || child === false) continue;
+    el.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
+  return el;
 }
 
-// Toast notification helper
-function showToast(message, icon = 'check') {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  toast.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4 text-indigo-400"></i> <span>${message}</span>`;
-  container.appendChild(toast);
-  if (window.lucide) lucide.createIcons();
-
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(8px)';
-    toast.style.transition = 'all 0.25s ease';
-    setTimeout(() => toast.remove(), 250);
-  }, 2400);
-}
-
-// ==========================================
-// Data Fetching
-// ==========================================
-async function loadData(force = false) {
-  try {
-    if (!force) {
-      syncDot.classList.add('hidden');
-      syncSpinner.classList.remove('hidden');
-      syncStatusEl.textContent = 'Fetching data...';
-    }
-
-    const url = `/api/data${force ? '?fresh=true' : ''}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP error ${res.status}`);
-
-    globalData = await res.json();
-    lastSyncTimestamp = new Date();
-
-    syncSpinner.classList.add('hidden');
-    syncDot.classList.remove('hidden');
-    updateRelativeSyncTime();
-
-    renderTabsNavigation();
-    renderQuickChips();
-    renderLeaderboardTable();
-    renderMatchDistributions();
-
-    if (window.lucide) {
-      lucide.createIcons();
-    }
-  } catch (err) {
-    console.error('Failed to load data:', err);
-    syncSpinner.classList.add('hidden');
-    syncDot.classList.remove('hidden');
-    syncStatusEl.textContent = 'Sync failed';
-  }
-}
-
-function updateRelativeSyncTime() {
-  if (!lastSyncTimestamp) return;
-  const now = new Date();
-  const diffSec = Math.round((now - lastSyncTimestamp) / 1000);
-  let text = 'just now';
-  if (diffSec >= 60) {
-    const mins = Math.floor(diffSec / 60);
-    text = `${mins}m ago`;
-  } else if (diffSec > 5) {
-    text = `${diffSec}s ago`;
-  }
-  syncStatusEl.textContent = `Updated: ${text}`;
-}
-
-// ==========================================
-// Tournament Round & Category Helpers
-// ==========================================
-function getRoundCategory(roundName) {
-  if (!roundName) return 'PL';
-  const n = roundName.toUpperCase();
-  if (n.includes('UCL') || n.includes('CHAMPIONS') || n.includes('CL ')) return 'UCL';
-  if (n.includes('LC') || n.includes('CUP') || n.includes('FA') || n.includes('1/16') || n.includes('1/8') || n.includes('1/4') || n.includes('SEMI') || n.includes('FINAL')) return 'CUP';
-  return 'PL';
-}
-
-function getShortRoundLabel(roundName) {
-  if (!roundName) return '';
-  const mPl = roundName.match(/PL\s*MD(\d+)/i);
-  if (mPl) return `PL ${mPl[1]}`;
-  const mUcl = roundName.match(/UCL\s*MD(\d+)/i);
-  if (mUcl) return `CL ${mUcl[1]}`;
-  const mLc = roundName.match(/LC\s*R?(\d+)/i);
-  if (mLc) return `LC ${mLc[1]}`;
-  const mFa = roundName.match(/FA\s*R?(\d+)/i);
-  if (mFa) return `FA ${mFa[1]}`;
-  const mR = roundName.match(/Round\s*(\d+)/i);
-  if (mR) return `R${mR[1]}`;
-  return roundName.length > 7 ? roundName.slice(0, 6) : roundName;
-}
-
-function updateCategoryFilterUI() {
-  if (!tournamentCategoryFilters) return;
-  tournamentCategoryFilters.querySelectorAll('.cat-filter-btn').forEach(btn => {
-    const cat = btn.getAttribute('data-cat');
-    if (cat === currentCategory) {
-      btn.className = 'cat-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-sm shrink-0 active:scale-95 transition';
-    } else {
-      btn.className = 'cat-filter-btn px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800/90 text-slate-400 hover:text-white border border-slate-700/60 shrink-0 active:scale-95 transition';
-    }
-  });
-}
-
-function updateModalCategoryFilterUI() {
-  if (!modalCatFilters) return;
-  modalCatFilters.querySelectorAll('.mcat-btn').forEach(btn => {
-    const cat = btn.getAttribute('data-mcat');
-    if (cat === modalCurrentCategory) {
-      btn.className = 'mcat-btn px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-600 text-white shrink-0 active:scale-95 transition';
-    } else {
-      btn.className = 'mcat-btn px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 hover:text-white shrink-0 active:scale-95 transition';
-    }
-  });
-}
-
-function renderTabsNavigation() {
-  if (!globalData || !tabsContainer) return;
-
-  const rounds = (globalData.rounds || []).filter(r => {
-    if (currentCategory === 'all') return true;
-    return getRoundCategory(r.name) === currentCategory;
-  });
-
-  // Render buttons in tabsContainer
-  let html = `
-    <button data-tab="overall" class="tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${currentTab === 'overall' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50'} shrink-0">
-      <i data-lucide="globe" class="w-3.5 h-3.5"></i>
-      <span>Overall Standings</span>
-    </button>
-  `;
-
-  rounds.forEach(rd => {
-    const isActive = rd.id === currentTab;
-    const isRoundLive = rd.status === 'active';
-    const shortLabel = getShortRoundLabel(rd.name);
-    const liveDot = isRoundLive ? '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>' : '';
-    html += `
-      <button data-tab="${rd.id}" title="${rd.name}" class="tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${isActive ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/30' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50'} shrink-0">
-        ${liveDot}
-        <span>${shortLabel || rd.name}</span>
-      </button>
-    `;
-  });
-
-  tabsContainer.innerHTML = html;
-
-  // Populate roundJumpSelect
-  if (roundJumpSelect) {
-    let selectHtml = `<option value="overall" ${currentTab === 'overall' ? 'selected' : ''}>🏆 Overall Standings</option>`;
-    
-    const allRounds = globalData.rounds || [];
-    const plRounds = allRounds.filter(r => getRoundCategory(r.name) === 'PL');
-    const uclRounds = allRounds.filter(r => getRoundCategory(r.name) === 'UCL');
-    const cupRounds = allRounds.filter(r => getRoundCategory(r.name) === 'CUP');
-
-    if (plRounds.length > 0) {
-      selectHtml += `<optgroup label="⚽ Premier League">`;
-      plRounds.forEach(r => {
-        selectHtml += `<option value="${r.id}" ${currentTab === r.id ? 'selected' : ''}>${r.status === 'active' ? '🟢 ' : ''}${r.name}</option>`;
-      });
-      selectHtml += `</optgroup>`;
-    }
-    if (uclRounds.length > 0) {
-      selectHtml += `<optgroup label="🌟 Champions League">`;
-      uclRounds.forEach(r => {
-        selectHtml += `<option value="${r.id}" ${currentTab === r.id ? 'selected' : ''}>${r.status === 'active' ? '🟢 ' : ''}${r.name}</option>`;
-      });
-      selectHtml += `</optgroup>`;
-    }
-    if (cupRounds.length > 0) {
-      selectHtml += `<optgroup label="🏆 Cups">`;
-      cupRounds.forEach(r => {
-        selectHtml += `<option value="${r.id}" ${currentTab === r.id ? 'selected' : ''}>${r.status === 'active' ? '🟢 ' : ''}${r.name}</option>`;
-      });
-      selectHtml += `</optgroup>`;
-    }
-
-    roundJumpSelect.innerHTML = selectHtml;
-  }
-
-  if (window.lucide) lucide.createIcons();
-}
-
-// ==========================================
-// Search & Autocomplete
-// ==========================================
-function handleSearchInput(query) {
-  if (!query || !globalData) {
-    autocompleteList.classList.add('hidden');
-    return;
-  }
-
-  const q = query.toLowerCase();
-  const matches = globalData.leaderboard.filter(u => {
-    const matchName = u.username.toLowerCase().includes(q);
-    const matchAlias = (u.aliases || []).some(a => a.toLowerCase().includes(q));
-    return matchName || matchAlias;
-  }).slice(0, 8);
-
-  if (matches.length === 0) {
-    autocompleteList.innerHTML = `
-      <div class="px-4 py-3 text-xs text-slate-500 text-center">
-        No participant found matching "${query}"
-      </div>
-    `;
-    autocompleteList.classList.remove('hidden');
-    return;
-  }
-
-  autocompleteList.innerHTML = matches.map(u => {
-    const idx = u.username.toLowerCase().indexOf(q);
-    let highlighted = u.username;
-    if (idx !== -1) {
-      const before = u.username.slice(0, idx);
-      const match = u.username.slice(idx, idx + q.length);
-      const after = u.username.slice(idx + q.length);
-      highlighted = `${before}<span class="text-indigo-400 font-bold underline">${match}</span>${after}`;
-    }
-
-    let medal = '';
-    if (u.rank === 1) medal = '🥇 ';
-    else if (u.rank === 2) medal = '🥈 ';
-    else if (u.rank === 3) medal = '🥉 ';
-
-    const aliasInfo = u.aliases && u.aliases.length > 1 ? `<span class="text-[10px] text-slate-500 ml-1">(${u.aliases.join(', ')})</span>` : '';
-
-    return `
-      <div class="px-4 py-2.5 hover:bg-slate-800/80 cursor-pointer flex items-center justify-between transition active:bg-slate-700"
-           onclick="selectUser('${u.username}')">
-        <div class="flex items-center space-x-2">
-          <span class="text-xs text-slate-400 w-8 font-mono">#${u.rank}</span>
-          <span class="text-sm text-white font-medium">${medal}${highlighted}${aliasInfo}</span>
-        </div>
-        <span class="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 font-mono">
-          ${u.total_score} pts
-        </span>
-      </div>
-    `;
-  }).join('');
-
-  autocompleteList.classList.remove('hidden');
-}
-
-function renderQuickChips() {
-  if (!globalData || !globalData.leaderboard) return;
-  const topPlayers = globalData.leaderboard.slice(0, 5);
-  quickChips.innerHTML = topPlayers.map(p => {
-    let medal = '⭐';
-    if (p.rank === 1) medal = '🥇';
-    else if (p.rank === 2) medal = '🥈';
-    else if (p.rank === 3) medal = '🥉';
-    return `
-      <button onclick="selectUser('${p.username}')" 
-              class="px-2.5 py-1 rounded-lg bg-slate-800/90 hover:bg-slate-700 hover:text-white border border-slate-700/60 text-slate-300 transition flex items-center gap-1.5 shadow-sm active:scale-95 shrink-0 text-xs">
-        <span>${medal}</span>
-        <span class="font-medium">${p.username}</span>
-        <span class="text-slate-400 font-bold font-mono">(${p.total_score})</span>
-      </button>
-    `;
-  }).join('');
-}
-
-// ==========================================
-// Modal & User Profile Management
-// ==========================================
-async function selectUser(username, updateHistory = true) {
-  autocompleteList.classList.add('hidden');
-  searchInput.value = username;
-  searchClear.classList.remove('hidden');
-
-  // Open modal dialog / bottom sheet
-  userModal.classList.remove('hidden');
-  modalLoadingOverlay.classList.remove('hidden');
-  document.body.style.overflow = 'hidden'; // Lock background scrolling
-
-  if (updateHistory) {
-    const url = new URL(window.location);
-    url.searchParams.set('user', username);
-    window.history.pushState({ user: username }, '', url);
-  }
-
-  try {
-    const res = await fetch(`/api/user/${encodeURIComponent(username)}`);
-    if (!res.ok) throw new Error('User not found');
-    const user = await res.json();
-
-    selectedUser = user.username;
-    renderUserProfile(user);
-
-    if (window.lucide) lucide.createIcons();
-  } catch (err) {
-    console.error('Error selecting user:', err);
-    showToast('Failed to load user profile', 'x');
-  } finally {
-    modalLoadingOverlay.classList.add('hidden');
-  }
-}
-
-function closeModal(updateHistory = true) {
-  userModal.classList.add('hidden');
-  document.body.style.overflow = ''; // Restore scrolling
-  selectedUser = null;
-
-  if (updateHistory) {
-    const url = new URL(window.location);
-    url.searchParams.delete('user');
-    window.history.pushState({}, '', url);
-  }
-}
-
-function renderUserProfile(user) {
-  currentUserProfileData = user;
-  profileUsername.textContent = user.username;
-  profileAvatar.textContent = user.username.slice(0, 2).toUpperCase();
-  profileRank.textContent = `#${user.rank}`;
-  profileTotalScore.textContent = `${user.total_score} pts`;
-
-  // Aliases badge if username was merged
-  if (user.aliases && user.aliases.length > 1) {
-    profileAliasesBadge.textContent = `Aliases: ${user.aliases.join(', ')}`;
-    profileAliasesBadge.classList.remove('hidden');
-  } else {
-    profileAliasesBadge.classList.add('hidden');
-  }
-
-  // Medal
-  if (user.rank === 1) {
-    profileMedal.textContent = '🥇 Champion';
-    profileMedal.className = 'text-amber-400 text-xs sm:text-sm font-bold flex items-center gap-1 whitespace-nowrap';
-    profileMedal.classList.remove('hidden');
-  } else if (user.rank === 2) {
-    profileMedal.textContent = '🥈 Runner-up';
-    profileMedal.className = 'text-slate-300 text-xs sm:text-sm font-bold flex items-center gap-1 whitespace-nowrap';
-    profileMedal.classList.remove('hidden');
-  } else if (user.rank === 3) {
-    profileMedal.textContent = '🥉 3rd Place';
-    profileMedal.className = 'text-amber-600 text-xs sm:text-sm font-bold flex items-center gap-1 whitespace-nowrap';
-    profileMedal.classList.remove('hidden');
-  } else {
-    profileMedal.classList.add('hidden');
-  }
-
-  // Choose default round to display in predictions:
-  if (user.round_predictions && user.round_predictions['r6'] && user.round_predictions['r6'].length > 0) {
-    selectedModalRound = 'r6';
-  } else if (user.round_predictions && user.round_predictions['r5'] && user.round_predictions['r5'].length > 0) {
-    selectedModalRound = 'r5';
-  } else {
-    selectedModalRound = (globalData && globalData.active_round_id) || 'r6';
-  }
-
-  updateModalCategoryFilterUI();
-  renderUserProfileRoundCards(user);
-  renderRoundPredictions(selectedModalRound);
-}
-
-function renderUserProfileRoundCards(user) {
-  if (!profileRoundsGrid || !user || !user.round_scores) return;
-
-  const filteredRounds = user.round_scores.filter(rs => {
-    if (modalCurrentCategory === 'all') return true;
-    return getRoundCategory(rs.round_name) === modalCurrentCategory;
-  });
-
-  if (filteredRounds.length === 0) {
-    profileRoundsGrid.innerHTML = `
-      <div class="col-span-full p-4 text-center text-xs text-slate-500 bg-slate-950/40 rounded-xl border border-slate-800">
-        No rounds found in category "${modalCurrentCategory}".
-      </div>
-    `;
-    return;
-  }
-
-  profileRoundsGrid.innerHTML = filteredRounds.map(rs => {
-    const isSelected = rs.round_id === selectedModalRound;
-    const isCurrent = rs.round_id === 'r6' || rs.status === 'active';
-    const hasPreds = user.round_predictions && user.round_predictions[rs.round_id] && user.round_predictions[rs.round_id].length > 0;
-    const scoreDisplay = rs.score !== null ? `${rs.score} pts` : '<span class="text-slate-500">—</span>';
-    
-    let statusText = 'Skipped';
-    let statusClass = 'text-slate-500 bg-slate-800/40';
-    if (isCurrent) {
-      if (hasPreds) {
-        const correct = user.round_predictions[rs.round_id].filter(p => p.correct === true).length;
-        const pending = user.round_predictions[rs.round_id].filter(p => p.correct === null).length;
-        if (pending > 0 && correct > 0) {
-          statusText = `${correct} pts (Live)`;
-          statusClass = 'text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 font-semibold';
-        } else {
-          statusText = 'Picks Submitted';
-          statusClass = 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20';
-        }
-      } else {
-        statusText = 'Pending Picks';
-        statusClass = 'text-amber-400 bg-amber-500/10';
-      }
-    } else if (hasPreds) {
-      const correct = user.round_predictions[rs.round_id].filter(p => p.correct).length;
-      statusText = `${correct}/${user.round_predictions[rs.round_id].length} correct`;
-      statusClass = 'text-emerald-400 bg-emerald-500/10';
-    } else if (rs.participated || rs.score !== null) {
-      statusText = 'Score Logged';
-      statusClass = 'text-indigo-400 bg-indigo-500/10';
-    }
-
-    const activeClasses = isSelected
-      ? 'round-card-active border-indigo-500 bg-indigo-950/60 shadow-lg shadow-indigo-500/20 ring-2 ring-indigo-500/70'
-      : (isCurrent ? 'bg-indigo-950/30 border-indigo-500/40 hover:border-indigo-400' : 'bg-slate-950/60 border-slate-800 hover:border-slate-700');
-
-    return `
-      <div onclick="switchModalRound('${rs.round_id}')" 
-           class="p-3 rounded-xl border ${activeClasses} space-y-1 transition cursor-pointer active:scale-[0.97] select-none"
-           title="Click to view ${rs.round_name} predictions">
-        <div class="flex items-center justify-between gap-1">
-          <span class="text-[10px] sm:text-[11px] font-semibold ${isSelected ? 'text-indigo-200' : 'text-slate-400'} truncate">${rs.round_name}</span>
-          ${isCurrent ? '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Active Round"></span>' : ''}
-        </div>
-        <div class="text-lg sm:text-xl font-black font-mono ${rs.score !== null ? 'text-white' : 'text-slate-600'}">
-          ${scoreDisplay}
-        </div>
-        <div class="text-[9px] sm:text-[10px] font-medium px-1.5 py-0.2 rounded inline-block ${statusClass}">
-          ${statusText}
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-function switchModalRound(roundId) {
-  if (!currentUserProfileData) return;
-  selectedModalRound = roundId;
-  renderUserProfileRoundCards(currentUserProfileData);
-  renderRoundPredictions(selectedModalRound);
-}
-window.switchModalRound = switchModalRound;
-
-function renderRoundPredictions(roundId) {
-  if (!currentUserProfileData) return;
-  const user = currentUserProfileData;
-  const preds = (user.round_predictions && user.round_predictions[roundId]) || [];
-  
-  let roundDisplayName = roundId;
-  let roundStatus = 'completed';
-  if (globalData && globalData.rounds) {
-    const rm = globalData.rounds.find(r => r.id === roundId);
-    if (rm) {
-      roundDisplayName = rm.name;
-      roundStatus = rm.status;
-    }
-  }
-
-  if (profilePredictionsTitle) {
-    profilePredictionsTitle.textContent = `${roundDisplayName} Predictions`;
-  }
-
-  if (preds.length === 0) {
-    profileR5SummaryBadge.textContent = 'No picks submitted';
-    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-medium whitespace-nowrap';
-
-    profilePredictionsContainer.innerHTML = `
-      <div class="p-8 text-center space-y-2">
-        <i data-lucide="help-circle" class="w-8 h-8 text-slate-600 mx-auto mb-1"></i>
-        <p class="text-xs sm:text-sm font-medium text-slate-300">No predictions submitted for ${roundDisplayName}.</p>
-        <p class="text-[11px] text-slate-500">${user.username} did not submit picks for this round.</p>
-      </div>
-    `;
-    if (window.lucide) lucide.createIcons();
-    return;
-  }
-
-  const isPending = preds.every(p => p.correct === null);
-  if (isPending) {
-    profileR5SummaryBadge.textContent = `${preds.length} picks submitted (Awaiting Results)`;
-    profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/30 font-medium whitespace-nowrap';
-  } else {
-    const correctCount = preds.filter(p => p.correct === true).length;
-    const pendingCount = preds.filter(p => p.correct === null).length;
-    if (pendingCount > 0) {
-      profileR5SummaryBadge.textContent = `${correctCount} / ${preds.length} correct (+${correctCount} pts, ${pendingCount} pending)`;
-      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/30 font-medium whitespace-nowrap';
-    } else {
-      profileR5SummaryBadge.textContent = `${correctCount} / ${preds.length} correct (+${correctCount} pts)`;
-      profileR5SummaryBadge.className = 'text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium whitespace-nowrap';
-    }
-  }
-
-  const outcomeShort = {
-    'Home': '1 (Home)',
-    'Away': '2 (Away)',
-    'Draw': 'X (Draw)'
-  };
-
-  profilePredictionsContainer.innerHTML = `
-    <div class="overflow-x-auto">
-      <table class="w-full text-left text-xs">
-        <thead class="bg-slate-900/90 text-[10px] sm:text-[11px] text-slate-400 uppercase tracking-wider border-b border-slate-800 font-semibold sticky top-0">
-          <tr>
-            <th class="py-2.5 px-3 sm:px-4 w-8 font-mono">#</th>
-            <th class="py-2.5 px-3 sm:px-4">Match</th>
-            <th class="py-2.5 px-3 sm:px-4">Pick</th>
-            <th class="py-2.5 px-3 sm:px-4 hidden sm:table-cell">Result</th>
-            <th class="py-2.5 px-3 sm:px-4 text-right">Points</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-slate-800/60">
-          ${preds.map((p, idx) => {
-            let badge = '';
-            if (p.correct === true) {
-              badge = `<span class="inline-flex items-center gap-0.5 text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 text-[11px]">
-                         <i data-lucide="check" class="w-3 h-3"></i> +1
-                       </span>`;
-            } else if (p.correct === false) {
-              badge = `<span class="inline-flex items-center gap-0.5 text-rose-400 font-medium bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20 text-[11px]">
-                         <i data-lucide="x" class="w-3 h-3"></i> 0
-                       </span>`;
-            } else {
-              badge = `<span class="inline-flex items-center text-slate-400 bg-slate-800 px-2 py-0.5 rounded text-[11px]">
-                         Pending
-                       </span>`;
-            }
-
-            return `
-              <tr class="hover:bg-slate-800/40 transition">
-                <td class="py-2.5 px-3 sm:px-4 text-slate-500 font-mono text-[11px]">${idx + 1}</td>
-                <td class="py-2.5 px-3 sm:px-4 text-white font-medium text-xs">
-                  <div>${p.match}</div>
-                  <div class="text-[10px] text-slate-400 sm:hidden mt-0.5">
-                    ${p.score ? `<span class="text-slate-200 font-mono font-semibold mr-1 bg-slate-800 px-1 rounded">${p.score}</span>` : ''}
-                    Result: ${outcomeShort[p.actual] || p.actual || '<span class="text-slate-500 italic">Pending</span>'}
-                  </div>
-                </td>
-                <td class="py-2.5 px-3 sm:px-4 font-semibold text-indigo-300 text-xs whitespace-nowrap">
-                  ${outcomeShort[p.prediction] || p.prediction}
-                </td>
-                <td class="py-2.5 px-3 sm:px-4 text-slate-300 text-xs hidden sm:table-cell whitespace-nowrap">
-                  ${p.score ? `<span class="inline-block px-1.5 py-0.5 rounded bg-slate-800 text-slate-200 font-mono font-semibold text-[11px] mr-1.5 border border-slate-700/60">${p.score}</span>` : ''}
-                  ${outcomeShort[p.actual] || p.actual || '<span class="text-slate-500 italic">Pending</span>'}
-                </td>
-                <td class="py-2.5 px-3 sm:px-4 text-right">${badge}</td>
-              </tr>
-            `;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  `;
-
-  if (window.lucide) lucide.createIcons();
-}
-
-window.goToRoundTable = function(roundId) {
-  closeModal();
-  currentTab = roundId;
-  updateActiveTabUI();
-  renderLeaderboardTable();
-  const tableSec = document.getElementById('leaderboard-table');
-  if (tableSec) {
-    tableSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const ICON_PATHS = {
+  check: 'M5 12.5l4.5 4.5L19 7.5',
+  x: 'M6 6l12 12M18 6L6 18',
+  up: 'M12 19V5M5.5 11.5 12 5l6.5 6.5',
+  down: 'M12 5v14M5.5 12.5 12 19l6.5-6.5',
+  share: 'M12 15V3M7.5 7.5 12 3l4.5 4.5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7',
+  close: 'M6 6l12 12M18 6L6 18',
+  star: 'M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z',
+  clock: 'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  chevron: 'M9 6l6 6-6 6',
 };
 
-// ==========================================
-// Leaderboard Tabs & Rendering
-// ==========================================
-function updateActiveTabUI() {
-  document.querySelectorAll('.tab-btn').forEach(btn => {
-    const tab = btn.getAttribute('data-tab');
-    if (tab === currentTab) {
-      btn.className = 'tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap bg-indigo-600 text-white shadow-md shadow-indigo-600/30 shrink-0';
-    } else {
-      btn.className = 'tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap bg-slate-800/80 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-700/50 shrink-0';
+function icon(name, cls = 'icon') {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', cls);
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', ICON_PATHS[name]);
+  svg.append(path);
+  return svg;
+}
+
+const store = {
+  get(key) { try { return localStorage.getItem(key); } catch { return null; } },
+  set(key, value) {
+    try { value === null ? localStorage.removeItem(key) : localStorage.setItem(key, value); } catch { /* private mode */ }
+  },
+};
+
+const fmtPts = (n) => (n === null || n === undefined ? '–' : Number.isInteger(n) ? String(n) : n.toFixed(1));
+const plural = (n, word, many = `${word}s`) => `${n} ${n === 1 ? word : many}`;
+const PICK_CODES = { H: 'Home', D: 'Draw', A: 'Away' };
+const OUTCOME_SHORT = { Home: '1', Draw: 'X', Away: '2' };
+
+function timeUntil(date) {
+  const mins = Math.round((date - Date.now()) / 60000);
+  if (mins <= 0) return 'now';
+  if (mins < 60) return `in ${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 48) return `in ${hours}h ${String(mins % 60).padStart(2, '0')}m`;
+  return `in ${Math.round(hours / 24)} days`;
+}
+
+function timeAgo(date) {
+  const secs = Math.max(0, Math.round((Date.now() - date) / 1000));
+  if (secs < 45) return 'just now';
+  if (secs < 3600) return `${Math.round(secs / 60)} min ago`;
+  return `${Math.round(secs / 3600)} h ago`;
+}
+
+const kickoffFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' });
+const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+
+/* ------------------------------------------------------------------ state */
+
+const state = {
+  data: null,
+  players: new Map(),
+  view: store.get('pl.view') === 'rounds' ? 'rounds' : 'standings',
+  roundId: null,
+  sort: 'total',
+  filter: '',
+  me: store.get('pl.me'),
+  openPlayer: null,
+  fetchedAt: 0,
+  loading: false,
+  failed: false,
+  timer: null,
+};
+
+const roundById = (id) => state.data.rounds.find((r) => r.id === id);
+const currentRound = () => roundById(state.data.current_round) || state.data.rounds[state.data.rounds.length - 1];
+
+function picksFor(roundId, key) {
+  const code = state.data.picks[roundId] && state.data.picks[roundId][key];
+  return code ? [...code].map((c) => PICK_CODES[c] || null) : null;
+}
+
+/** correct | wrong | winning | losing | pending | void | none */
+function pickState(pick, match) {
+  if (!pick) return 'none';
+  if (match.status === 'final') return match.outcome ? (pick === match.outcome ? 'correct' : 'wrong') : 'void';
+  if (match.status === 'live' && match.outcome) return pick === match.outcome ? 'winning' : 'losing';
+  if (match.status === 'postponed' || match.status === 'void') return 'void';
+  return 'pending';
+}
+
+function pickLabel(pick, match) {
+  if (!pick) return 'No pick';
+  if (pick === 'Draw') return 'Draw';
+  return (pick === 'Home' ? match.home : match.away) || pick;
+}
+
+const roundShort = (r) => `R${r.number}`;
+const roundTitle = (r) => (r.stage ? `${r.competition} · ${r.stage}` : r.tag || `Round ${r.number}`);
+
+const STATUS_LABELS = {
+  final: 'Final',
+  completed: 'Awaiting confirmation',
+  live: 'Live',
+  upcoming: 'Open',
+  awaiting: 'Awaiting results',
+};
+
+function statusBadge(r) {
+  return h('span', { class: `badge badge--${r.status}` }, r.status === 'live' ? h('span', { class: 'pulse' }) : null, STATUS_LABELS[r.status] || r.status);
+}
+
+function hasDraws(r) {
+  return r.category !== 'cup' || r.matches.some((m) => m.dist.draw > 0);
+}
+
+/* ------------------------------------------------------------------ data */
+
+async function load({ force = false } = {}) {
+  if (state.loading) return;
+  state.loading = true;
+  renderSync();
+  try {
+    if (force) await fetch('/api/refresh', { method: 'POST' }).catch(() => null);
+    const res = await fetch('/api/league', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`Server responded ${res.status}`);
+    const data = await res.json();
+    state.data = data;
+    state.players = new Map(data.players.map((p) => [p.key, p]));
+    state.fetchedAt = Date.now() - (data.meta.age_seconds || 0) * 1000;
+    state.failed = false;
+    if (!state.roundId || !roundById(state.roundId)) state.roundId = data.current_round;
+    if (state.me && !state.players.has(state.me)) state.me = null;
+    renderAll();
+  } catch (err) {
+    state.failed = true;
+    console.error(err);
+    if (!state.data) renderFatal(err);
+  } finally {
+    state.loading = false;
+    renderSync();
+    schedule();
+  }
+}
+
+function schedule() {
+  clearTimeout(state.timer);
+  if (document.hidden) return;
+  let delay = 120000;
+  const r = state.data && currentRound();
+  if (r && r.status === 'live') delay = 30000;
+  else if (r && r.first_kickoff && Math.abs(new Date(r.first_kickoff) - Date.now()) < 3 * 3600 * 1000) delay = 60000;
+  if (state.failed) delay = 20000;
+  state.timer = setTimeout(() => load(), delay);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return clearTimeout(state.timer);
+  if (Date.now() - state.fetchedAt > 30000) load();
+  else schedule();
+});
+
+/* ------------------------------------------------------------------ top bar & banners */
+
+function renderSync() {
+  const btn = $('#sync');
+  const text = $('#sync-text');
+  btn.classList.toggle('is-loading', state.loading);
+  btn.classList.toggle('is-stale', state.failed || Boolean(state.data && state.data.meta.stale));
+  if (state.loading && !state.data) text.textContent = 'Loading…';
+  else if (state.loading) text.textContent = 'Updating…';
+  else if (state.failed) text.textContent = 'Offline';
+  else if (state.data) text.textContent = timeAgo(state.fetchedAt);
+  if (state.data) btn.title = `Data updated ${timeAgo(state.fetchedAt)} — tap to refresh`;
+}
+
+function renderBanner() {
+  const banner = $('#banner');
+  const meta = state.data.meta;
+  banner.replaceChildren();
+  if (meta.stale) {
+    banner.append(h('strong', { text: 'Could not reach the Google Sheet. ' }), `Showing data from ${timeAgo(state.fetchedAt)}.`);
+  }
+  banner.hidden = !meta.stale;
+  for (const a of [$('#sheet-link'), $('#footer-sheet')]) a.href = meta.spreadsheet_url;
+}
+
+function renderFatal(err) {
+  $('#current').replaceChildren(
+    h('div', { class: 'empty empty--error' },
+      h('p', { class: 'empty__title', text: 'The league data could not be loaded.' }),
+      h('p', { text: 'The server may be waking up (this takes up to a minute on the free plan).' }),
+      h('button', { class: 'btn', type: 'button', onclick: () => load(), text: 'Try again' })),
+  );
+  $('#view-standings').replaceChildren();
+  console.warn(err);
+}
+
+/* ------------------------------------------------------------------ "me" card & search */
+
+function movement(p, compact = false) {
+  if (p.movement === null || p.movement === undefined) {
+    return p.prev_rank === null && p.played === 1 ? h('span', { class: 'move move--new', text: 'new' }) : null;
+  }
+  if (p.movement === 0) return compact ? h('span', { class: 'move move--same', text: '–', 'aria-label': 'no change' }) : null;
+  const up = p.movement > 0;
+  return h('span', { class: `move move--${up ? 'up' : 'down'}`, title: `${up ? 'Up' : 'Down'} ${Math.abs(p.movement)} since last round` },
+    icon(up ? 'up' : 'down', 'icon icon--xs'), Math.abs(p.movement));
+}
+
+function avatar(name, big = false) {
+  const initial = (name.match(/[a-z0-9]/i) || ['?'])[0].toUpperCase();
+  let hash = 0;
+  for (const ch of name.toLowerCase()) hash = (hash * 31 + ch.charCodeAt(0)) % 360;
+  return h('span', { class: `avatar${big ? ' avatar--big' : ''}`, style: `--hue:${hash}`, 'aria-hidden': 'true', text: initial });
+}
+
+function roundProgressLine(r, key) {
+  const picks = picksFor(r.id, key);
+  if (!picks) return r.status === 'upcoming' ? 'No picks for this round yet' : `Did not play ${roundShort(r)}`;
+  const states = picks.map((p, i) => pickState(p, r.matches[i]));
+  const count = (s) => states.filter((x) => x === s).length;
+  const decided = count('correct') + count('wrong');
+  if (!decided && !count('winning') && !count('losing')) return `${roundShort(r)} picks are in ✓`;
+  const parts = [`${count('correct')}/${decided} correct in ${roundShort(r)}`];
+  if (count('winning')) parts.push(`${count('winning')} winning live`);
+  return parts.join(' · ');
+}
+
+function renderMe() {
+  const card = $('#me-card');
+  const p = state.me && state.players.get(state.me);
+  card.hidden = !p;
+  if (!p) return;
+  const r = currentRound();
+  card.replaceChildren(
+    h('button', { class: 'me-card__main', type: 'button', onclick: () => openPlayer(p.key), 'aria-label': `Open your profile, ${p.name}` },
+      avatar(p.name),
+      h('span', { class: 'me-card__text' },
+        h('span', { class: 'me-card__name' }, p.name, h('span', { class: 'you', text: 'you' })),
+        h('span', { class: 'me-card__sub', text: roundProgressLine(r, p.key) })),
+      h('span', { class: 'me-card__rank' },
+        h('span', { class: 'me-card__pos' }, `#${p.rank}`, movement(p)),
+        h('span', { class: 'me-card__pts', text: `${fmtPts(p.total)} pts` }))),
+  );
+}
+
+function searchPlayers(query) {
+  const q = query.trim().replace(/^\/?u\//i, '').toLowerCase();
+  if (!q) return [];
+  const hits = [];
+  for (const p of state.data.players) {
+    const names = [p.key, ...p.aliases.map((a) => a.toLowerCase())];
+    const starts = names.some((n) => n.startsWith(q));
+    if (starts || names.some((n) => n.includes(q))) hits.push({ p, starts });
+  }
+  hits.sort((a, b) => (b.starts - a.starts) || (a.p.rank - b.p.rank));
+  return hits.slice(0, 8).map((x) => x.p);
+}
+
+function highlight(name, query) {
+  const q = query.trim().replace(/^\/?u\//i, '');
+  const i = name.toLowerCase().indexOf(q.toLowerCase());
+  if (!q || i < 0) return name;
+  return [name.slice(0, i), h('mark', { text: name.slice(i, i + q.length) }), name.slice(i + q.length)];
+}
+
+function setupSearch() {
+  const input = $('#search-input');
+  const list = $('#search-results');
+  let active = -1;
+  let results = [];
+
+  const close = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); active = -1; };
+  const choose = (p) => { input.value = ''; close(); input.blur(); openPlayer(p.key); };
+  const paint = () => {
+    list.replaceChildren(...(results.length ? results.map((p, i) =>
+      h('li', { role: 'option', id: `sr-${i}`, class: i === active ? 'is-active' : '', 'aria-selected': String(i === active),
+                onmousedown: (e) => { e.preventDefault(); choose(p); } },
+        avatar(p.name),
+        h('span', { class: 'search__name' }, highlight(p.name, input.value)),
+        h('span', { class: 'search__meta', text: `#${p.rank} · ${fmtPts(p.total)} pts` }))) :
+      [h('li', { class: 'search__empty', text: 'No player with that name' })]));
+    input.setAttribute('aria-activedescendant', active >= 0 ? `sr-${active}` : '');
+  };
+
+  input.addEventListener('input', () => {
+    if (!state.data) return;
+    results = searchPlayers(input.value);
+    active = results.length ? 0 : -1;
+    if (!input.value.trim()) return close();
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+    paint();
+  });
+  input.addEventListener('keydown', (e) => {
+    if (list.hidden) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + results.length) % results.length;
+      paint();
+    } else if (e.key === 'Enter' && results[active]) {
+      e.preventDefault();
+      choose(results[active]);
+    } else if (e.key === 'Escape') {
+      close();
     }
   });
-
-  if (roundJumpSelect) {
-    roundJumpSelect.value = currentTab;
-  }
+  input.addEventListener('blur', () => setTimeout(close, 120));
 }
 
-function renderLeaderboardTable() {
-  if (!globalData) return;
+/* ------------------------------------------------------------------ current round card */
 
-  const filter = (tableFilterInput.value || '').trim().toLowerCase();
-
-  if (currentTab === 'overall') {
-    renderOverallTable(filter);
-  } else {
-    renderRoundTable(currentTab, filter);
-  }
-
-  if (window.lucide) lucide.createIcons();
+function matchDots(r) {
+  return h('div', { class: 'dots', 'aria-hidden': 'true' },
+    r.matches.map((m) => h('span', { class: `dot dot--${m.status}`, title: `${m.title}: ${m.score || m.status}` })));
 }
 
-function renderOverallTable(filter) {
-  const allRounds = (globalData && globalData.rounds) || [];
-  const displayedRounds = allRounds.filter(r => {
-    if (currentCategory === 'all') return true;
-    return getRoundCategory(r.name) === currentCategory;
-  });
+function currentSummary(r) {
+  const finished = r.matches.filter((m) => m.status === 'final').length;
+  const live = r.matches.filter((m) => m.status === 'live').length;
+  if (r.status === 'upcoming') {
+    const next = r.matches.map((m) => m.kickoff && new Date(m.kickoff)).filter((d) => d && d > Date.now()).sort((a, b) => a - b)[0];
+    return next ? `First kick-off ${kickoffFmt.format(next)} · ${timeUntil(next)}` : 'Waiting for kick-off';
+  }
+  if (r.status === 'live') return `${finished} of ${r.matches.length} finished${live ? ` · ${live} in play` : ''}`;
+  if (r.status === 'completed') return 'All matches finished · scores are unofficial until the organizer confirms';
+  if (r.status === 'awaiting') return 'Round finished · waiting for the organizer to publish results';
+  return `Average ${fmtPts(r.stats.average)} · top score ${fmtPts(r.stats.top)}`;
+}
 
-  const roundColsHtml = displayedRounds.map(r => {
-    const shortLabel = getShortRoundLabel(r.name);
-    return `<th class="py-3 px-2 text-center hidden md:table-cell text-[11px] font-mono whitespace-nowrap" title="${r.name}">${shortLabel}</th>`;
-  }).join('');
+function renderCurrent() {
+  const r = currentRound();
+  const el = $('#current');
+  if (!r) return el.replaceChildren();
+  el.replaceChildren(
+    h('button', { class: `current__card current__card--${r.status}`, type: 'button', onclick: () => { showRound(r.id); scrollToTabs(); } },
+      h('span', { class: 'current__top' },
+        h('span', { class: 'current__eyebrow', text: `Round ${r.number}` }),
+        statusBadge(r)),
+      h('span', { class: 'current__title', text: roundTitle(r) }),
+      h('span', { class: 'current__sub', text: `${currentSummary(r)} · ${plural(r.entries, 'entry', 'entries')}` }),
+      matchDots(r),
+      h('span', { class: 'current__cta' }, 'Fixtures & picks', icon('chevron', 'icon icon--xs'))),
+  );
+}
 
-  tableHeaders.innerHTML = `
-    <tr>
-      <th class="py-3 px-2 sm:px-3 sticky-col-1 font-mono whitespace-nowrap">Rank</th>
-      <th class="py-3 px-3 sm:px-4 sticky-col-2 whitespace-nowrap">Participant</th>
-      ${roundColsHtml}
-      <th class="py-3 px-3 sm:px-4 text-right whitespace-nowrap">Total Points</th>
-    </tr>
-  `;
+/* ------------------------------------------------------------------ tabs */
 
-  let users = globalData.leaderboard || [];
-  if (filter) {
-    users = users.filter(u => {
-      const matchName = u.username.toLowerCase().includes(filter);
-      const matchAlias = (u.aliases || []).some(a => a.toLowerCase().includes(filter));
-      return matchName || matchAlias;
+function setView(view, { push = true } = {}) {
+  state.view = view;
+  store.set('pl.view', view);
+  for (const btn of document.querySelectorAll('.tabs__btn')) btn.setAttribute('aria-selected', String(btn.dataset.view === view));
+  $('#view-standings').hidden = view !== 'standings';
+  $('#view-rounds').hidden = view !== 'rounds';
+  if (push) syncUrl();
+}
+
+function showRound(id) {
+  state.roundId = id;
+  setView('rounds');
+  renderRounds();
+}
+
+function scrollToTabs() {
+  $('.tabs').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+}
+
+/* ------------------------------------------------------------------ standings */
+
+const MAX_ROUND_COLUMNS = 10;
+
+function scoredRounds() {
+  return state.data.rounds.filter((r) => r.status !== 'upcoming' || r.id === state.data.current_round).slice(-MAX_ROUND_COLUMNS);
+}
+
+function renderStandings() {
+  const view = $('#view-standings');
+  const rounds = scoredRounds();
+  const latest = [...state.data.rounds].reverse().find((r) => r.status !== 'upcoming') || currentRound();
+  const q = state.filter.trim().toLowerCase();
+
+  let rows = state.data.players;
+  if (q) rows = rows.filter((p) => p.key.includes(q) || p.aliases.some((a) => a.toLowerCase().includes(q)));
+  if (state.sort !== 'total') {
+    rows = [...rows].sort((a, b) => ((b.rounds[state.sort] ?? -1) - (a.rounds[state.sort] ?? -1)) || a.rank - b.rank);
+  }
+
+  const sortBtn = (id, label, title) => h('button', {
+    type: 'button', class: `th-sort${state.sort === id ? ' is-active' : ''}`, title,
+    'aria-pressed': String(state.sort === id), onclick: () => { state.sort = state.sort === id ? 'total' : id; renderStandings(); },
+  }, label);
+
+  const head = h('div', { class: 'row row--head', role: 'row' },
+    h('span', { class: 'c-rank', role: 'columnheader', text: '#' }),
+    h('span', { class: 'c-name', role: 'columnheader', text: 'Player' }),
+    rounds.map((r) => h('span', { class: `c-round${r.id === latest.id ? ' c-round--latest' : ''}`, role: 'columnheader' },
+      sortBtn(r.id, roundShort(r), `${r.tag || ''} — sort by this round`))),
+    h('span', { class: 'c-total', role: 'columnheader' }, sortBtn('total', 'Pts', 'Sort by total points')));
+
+  const body = rows.map((p) => {
+    const cells = rounds.map((r) => {
+      const played = r.id in p.rounds;
+      const pts = p.rounds[r.id];
+      const live = r.id === state.data.current_round && p.live ? p.live : 0;
+      return h('span', { class: `c-round${r.id === latest.id ? ' c-round--latest' : ''}${played ? '' : ' is-empty'}`, role: 'cell' },
+        played ? fmtPts(pts) : '·',
+        live ? h('sup', { class: 'live-pts', title: `${live} more if live scores hold`, text: `+${live}` }) : null);
     });
-  }
-
-  tableCountLabel.textContent = `Showing ${users.length} of ${globalData.total_participants} participants`;
-
-  const totalCols = 3 + displayedRounds.length;
-
-  if (users.length === 0) {
-    tableBody.innerHTML = `
-      <tr>
-        <td colspan="${totalCols}" class="text-center py-8 text-slate-500 text-xs">
-          No participants match "${filter}"
-        </td>
-      </tr>
-    `;
-    return;
-  }
-
-  tableBody.innerHTML = users.map(u => {
-    let rankBadge = `<span class="font-mono text-slate-400 font-semibold whitespace-nowrap">#${u.rank}</span>`;
-    let rowClass = 'hover:bg-slate-800/60 cursor-pointer transition active:bg-slate-800/80';
-    if (u.rank === 1) {
-      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-400 whitespace-nowrap">🥇 1</span>`;
-    } else if (u.rank === 2) {
-      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-slate-300 whitespace-nowrap">🥈 2</span>`;
-    } else if (u.rank === 3) {
-      rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-600 whitespace-nowrap">🥉 3</span>`;
-    }
-
-    const isSelected = selectedUser && selectedUser.toLowerCase() === u.username.toLowerCase();
-    if (isSelected) {
-      rowClass += ' selected-row bg-indigo-900/30 border-l-2 border-indigo-500';
-    }
-
-    const rCellsHtml = displayedRounds.map(r => {
-      const val = u.round_scores ? u.round_scores[r.id] : null;
-      if (r.id === 'r6' || r.status === 'active') {
-        if (u.has_active_predictions) {
-          const livePts = (val !== null && val !== undefined) ? val : 0;
-          return `<td class="py-3 px-2 text-center hidden md:table-cell text-xs"><span class="text-emerald-400 font-semibold text-[11px]" title="Live round score: ${livePts} pts (${livePts} correct so far)">${livePts}*</span></td>`;
-        }
-        return '<td class="py-3 px-2 text-center hidden md:table-cell text-xs"><span class="text-slate-600">—</span></td>';
-      }
-      const scoreDisplay = (val !== null && val !== undefined) ? `<span class="text-slate-300 font-mono">${val}</span>` : '<span class="text-slate-600">—</span>';
-      return `<td class="py-3 px-2 text-center hidden md:table-cell text-xs">${scoreDisplay}</td>`;
-    }).join('');
-
-    const aliasesNotice = u.aliases && u.aliases.length > 1 ? `<span class="text-[10px] text-slate-500 hidden sm:inline">(${u.aliases.join(', ')})</span>` : '';
-    const activeBadge = u.has_active_predictions ? '<span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 shrink-0" title="Active round predictions submitted">Active ✓</span>' : '';
-
-    return `
-      <tr class="${rowClass}" onclick="selectUser('${u.username}')">
-        <td class="py-3 px-2 sm:px-3 sticky-col-1 whitespace-nowrap">${rankBadge}</td>
-        <td class="py-3 px-3 sm:px-4 sticky-col-2 whitespace-nowrap">
-          <div class="flex items-center space-x-1.5">
-            <span class="font-semibold text-white text-xs sm:text-sm hover:underline">${u.username}</span>
-            ${aliasesNotice}
-            ${activeBadge}
-          </div>
-        </td>
-        ${rCellsHtml}
-        <td class="py-3 px-3 sm:px-4 text-right whitespace-nowrap">
-          <span class="text-xs sm:text-sm font-black text-emerald-400 font-mono">${u.total_score}</span>
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function renderRoundTable(roundId, filter) {
-  const roundMeta = (globalData.rounds && globalData.rounds.find(r => r.id === roundId)) || { name: roundId, status: 'completed' };
-  const isRoundActive = roundMeta.status === 'active';
-
-  tableHeaders.innerHTML = `
-    <tr>
-      <th class="py-3 px-2 sm:px-3 sticky-col-1 font-mono whitespace-nowrap">Rank</th>
-      <th class="py-3 px-3 sm:px-4 sticky-col-2 whitespace-nowrap">Participant (${roundMeta.name})</th>
-      <th class="py-3 px-3 sm:px-4 text-right whitespace-nowrap">${isRoundActive ? 'Status' : 'Round Points'}</th>
-    </tr>
-  `;
-
-  const standings = (globalData.round_standings && globalData.round_standings[roundId]) || [];
-  let filtered = standings;
-  if (filter) {
-    filtered = filtered.filter(u => u.username.toLowerCase().includes(filter));
-  }
-
-  tableCountLabel.textContent = `Showing ${filtered.length} participants in ${roundMeta.name}`;
-
-  if (filtered.length === 0) {
-    tableBody.innerHTML = `
-      <tr>
-        <td colspan="3" class="text-center py-8 text-slate-500 text-xs">
-          No participants found
-        </td>
-      </tr>
-    `;
-    return;
-  }
-
-  tableBody.innerHTML = filtered.map(u => {
-    let rankBadge = `<span class="font-mono text-slate-400 font-semibold whitespace-nowrap">#${u.rank}</span>`;
-    if (u.rank === 1) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-400 whitespace-nowrap">🥇 1</span>`;
-    else if (u.rank === 2) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-slate-300 whitespace-nowrap">🥈 2</span>`;
-    else if (u.rank === 3) rankBadge = `<span class="inline-flex items-center gap-1 font-bold text-amber-600 whitespace-nowrap">🥉 3</span>`;
-
-    const isSelected = selectedUser && selectedUser.toLowerCase() === u.username.toLowerCase();
-    let rowClass = 'hover:bg-slate-800/60 cursor-pointer transition active:bg-slate-800/80';
-    if (isSelected) rowClass += ' selected-row bg-indigo-900/30 border-l-2 border-indigo-500';
-
-    const rightColDisplay = isRoundActive
-      ? '<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-semibold whitespace-nowrap">Submitted (Pending)</span>'
-      : `<span class="font-black text-indigo-400 font-mono text-xs sm:text-sm whitespace-nowrap">${u.score}</span>`;
-
-    return `
-      <tr class="${rowClass}" onclick="selectUser('${u.username}')">
-        <td class="py-3 px-2 sm:px-3 sticky-col-1 whitespace-nowrap">${rankBadge}</td>
-        <td class="py-3 px-3 sm:px-4 sticky-col-2 whitespace-nowrap font-semibold text-white text-xs sm:text-sm hover:underline">${u.username}</td>
-        <td class="py-3 px-3 sm:px-4 text-right whitespace-nowrap">${rightColDisplay}</td>
-      </tr>
-    `;
-  }).join('');
-}
-
-// ==========================================
-// Matches Distribution (Round 6 & Round 5)
-// ==========================================
-function renderMatchDistributions() {
-  if (!globalData) return;
-
-  updateDistTabsUI();
-
-  const roundDistributions = (globalData.round_match_distributions && globalData.round_match_distributions[currentDistRound]) 
-    || (currentDistRound === 'r6' ? globalData.match_distributions : []) 
-    || [];
-
-  if (!roundDistributions || roundDistributions.length === 0) {
-    matchesGrid.innerHTML = `
-      <div class="glass-panel rounded-xl p-8 border border-slate-800 col-span-full text-center text-slate-400 text-xs">
-        No match predictions data available for this round.
-      </div>
-    `;
-    return;
-  }
-
-  matchesGrid.innerHTML = roundDistributions.map((m, idx) => {
-    let actualBadge = '';
-    if (m.actual) {
-      const outcomeNames = { 'Home': 'Home Win (1)', 'Draw': 'Draw (X)', 'Away': 'Away Win (2)' };
-      const scoreBadge = m.score ? `<span class="bg-emerald-500/20 text-white font-mono px-1.5 py-0.5 rounded mr-1">${m.score}</span>` : '';
-      actualBadge = `
-        <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center gap-1 shrink-0">
-          <i data-lucide="check" class="w-3 h-3"></i> ${scoreBadge}Result: ${outcomeNames[m.actual] || m.actual}
-        </span>
-      `;
-    } else {
-      actualBadge = `
-        <span class="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-800/80 text-slate-400 border border-slate-700/80 flex items-center gap-1 shrink-0">
-          <i data-lucide="clock" class="w-3 h-3 text-slate-400"></i> Pending Results
-        </span>
-      `;
-    }
-
-    return `
-      <div class="glass-panel rounded-xl p-3.5 sm:p-4 border border-slate-800 space-y-2.5 sm:space-y-3">
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex items-center space-x-2 min-w-0">
-            <span class="text-xs font-mono font-bold text-indigo-400 shrink-0">#${idx + 1}</span>
-            <h4 class="text-xs sm:text-sm font-bold text-white truncate">${m.match}</h4>
-            <span class="text-[10px] text-slate-500 font-mono shrink-0">(${m.total} votes)</span>
-          </div>
-          ${actualBadge}
-        </div>
-
-        <!-- Segmented Bar -->
-        <div class="space-y-1.5">
-          <div class="h-2.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
-            <div style="width: ${m.home_pct}%" class="bg-blue-500 transition-all duration-500" title="Home: ${m.home_pct}%"></div>
-            <div style="width: ${m.draw_pct}%" class="bg-amber-500 transition-all duration-500" title="Draw: ${m.draw_pct}%"></div>
-            <div style="width: ${m.away_pct}%" class="bg-violet-500 transition-all duration-500" title="Away: ${m.away_pct}%"></div>
-          </div>
-
-          <!-- Labels -->
-          <div class="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-400 pt-0.5">
-            <div class="flex items-center gap-1">
-              <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-              <span>1 (${m.home}): <strong class="text-white">${m.home_pct}%</strong></span>
-            </div>
-            <div class="flex items-center gap-1">
-              <span class="w-2 h-2 rounded-full bg-amber-500"></span>
-              <span>X (${m.draw}): <strong class="text-white">${m.draw_pct}%</strong></span>
-            </div>
-            <div class="flex items-center gap-1">
-              <span class="w-2 h-2 rounded-full bg-violet-500"></span>
-              <span>2 (${m.away}): <strong class="text-white">${m.away_pct}%</strong></span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  if (window.lucide) lucide.createIcons();
-}
-
-function updateDistTabsUI() {
-  if (!distTabsContainer) return;
-  distTabsContainer.querySelectorAll('.dist-tab-btn').forEach(btn => {
-    const round = btn.getAttribute('data-dist-tab');
-    if (round === currentDistRound) {
-      btn.className = 'dist-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 bg-indigo-600 text-white shadow-sm shadow-indigo-600/30 active:scale-95';
-    } else {
-      btn.className = 'dist-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700 active:scale-95';
-    }
+    return h('div', { class: `row${p.key === state.me ? ' is-me' : ''}`, role: 'row', dataset: { key: p.key } },
+      h('span', { class: `c-rank rank-${p.rank <= 3 ? p.rank : 'n'}`, role: 'cell' }, h('b', { text: p.rank }), movement(p, true)),
+      h('span', { class: 'c-name', role: 'rowheader' },
+        h('button', { type: 'button', class: 'name-btn', onclick: () => openPlayer(p.key) },
+          h('span', { class: 'name-btn__name' }, p.name, p.key === state.me ? h('span', { class: 'you', text: 'you' }) : null),
+          h('span', { class: 'name-btn__meta', text: `${plural(p.played, 'round')}${p.accuracy !== null ? ` · ${p.accuracy}%` : ''}` }))),
+      cells,
+      h('span', { class: 'c-total', role: 'cell' }, h('b', { text: fmtPts(p.total) })));
   });
+
+  const toolbar = h('div', { class: 'toolbar' },
+    h('label', { class: 'filter' },
+      h('span', { class: 'sr-only', text: 'Filter players' }),
+      h('input', { type: 'search', placeholder: `Filter ${state.data.players.length} players`, value: state.filter, autocomplete: 'off',
+                   oninput: (e) => { state.filter = e.target.value; renderStandings(); } })),
+    state.me && state.players.has(state.me) ? h('button', { type: 'button', class: 'btn btn--ghost', onclick: jumpToMe, text: 'Find me' }) : null);
+
+  const table = h('div', { class: 'table', role: 'table', 'aria-label': 'Overall standings', style: `--rounds:${rounds.length}` },
+    head, body.length ? body : h('div', { class: 'empty', text: `No player matches “${state.filter}”` }));
+
+  if (view.firstChild && view.querySelector('.toolbar')) {
+    view.querySelector('.table').replaceWith(table);
+  } else {
+    view.replaceChildren(toolbar, table, h('p', { class: 'hint', text: 'Tap a round header to sort by it. Tap a name for picks and history.' }));
+  }
 }
+
+function jumpToMe() {
+  state.filter = '';
+  const input = $('#view-standings .filter input');
+  if (input) input.value = '';
+  renderStandings();
+  const row = $(`#view-standings .row[data-key="${CSS.escape(state.me)}"]`);
+  if (row) {
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.add('flash');
+    setTimeout(() => row.classList.remove('flash'), 1600);
+  }
+}
+
+/* ------------------------------------------------------------------ rounds */
+
+function distBar(r, m) {
+  const d = m.dist;
+  const total = d.total || 1;
+  const segs = [['home', 'Home', OUTCOME_SHORT.Home], ['draw', 'Draw', OUTCOME_SHORT.Draw], ['away', 'Away', OUTCOME_SHORT.Away]]
+    .filter(([k]) => k !== 'draw' || hasDraws(r));
+  return h('div', { class: 'dist' },
+    h('div', { class: 'dist__bar', role: 'img', 'aria-label': segs.map(([k, name]) => `${name} ${Math.round(100 * d[k] / total)}%`).join(', ') },
+      segs.map(([k, name]) => d[k] ? h('span', {
+        class: `dist__seg dist__seg--${k}${m.outcome === name && m.status !== 'scheduled' ? ' is-result' : ''}`,
+        style: `flex-grow:${d[k]}`,
+      }) : null)),
+    h('div', { class: 'dist__legend' },
+      segs.map(([k, name, short]) => h('span', { class: `dist__label${m.outcome === name && m.status !== 'scheduled' ? ' is-result' : ''}` },
+        h('i', { class: `sw sw--${k}` }), `${short} ${Math.round(100 * d[k] / total)}%`))));
+}
+
+function matchStatus(m) {
+  if (m.status === 'live') return h('span', { class: 'm-status m-status--live' }, h('span', { class: 'pulse' }), m.detail || 'Live');
+  if (m.status === 'final') return h('span', { class: 'm-status', text: m.confirmed ? 'FT' : (m.detail || 'FT') });
+  if (m.status === 'postponed') return h('span', { class: 'm-status m-status--warn', text: 'Postponed' });
+  if (m.status === 'void') return h('span', { class: 'm-status m-status--warn', text: 'Void' });
+  if (m.kickoff) {
+    const d = new Date(m.kickoff);
+    return h('span', { class: 'm-status', title: d.toLocaleString(), text: kickoffFmt.format(d) });
+  }
+  return h('span', { class: 'm-status', text: '—' });
+}
+
+const STATE_TEXT = { correct: 'Correct', wrong: 'Wrong', winning: 'Winning', losing: 'Losing', pending: 'Pending', void: 'Void', none: 'No pick' };
+
+function pickChip(pick, m, withLabel = true) {
+  const st = pickState(pick, m);
+  const ic = { correct: 'check', wrong: 'x', winning: 'check', losing: 'x' }[st];
+  return h('span', { class: `pick pick--${st}`, title: STATE_TEXT[st] },
+    ic ? icon(ic, 'icon icon--xs') : null, withLabel ? pickLabel(pick, m) : null);
+}
+
+function fixture(r, m, myPicks) {
+  const outcomeCls = (side) => (m.outcome && m.status !== 'scheduled' ? (m.outcome === side ? ' is-win' : '') : '');
+  const pct = m.correct_pct !== null && m.correct_pct !== undefined
+    ? `${m.correct_pct}% ${m.status === 'live' ? 'right so far' : 'got it'}`
+    : null;
+  return h('li', { class: `fx fx--${m.status}` },
+    h('div', { class: 'fx__meta' },
+      h('span', { class: 'fx__when' }, matchStatus(m), pct ? h('span', { class: 'fx__pct', text: pct }) : null),
+      myPicks ? pickChip(myPicks[m.index], m) : null),
+    h('div', { class: 'fx__line' },
+      h('span', { class: `fx__team fx__team--home${outcomeCls('Home')}`, text: m.home || m.title }),
+      h('span', { class: 'fx__score', text: m.score || 'v' }),
+      h('span', { class: `fx__team fx__team--away${outcomeCls('Away')}`, text: m.away || '' })),
+    distBar(r, m));
+}
+
+function roundStandings(r) {
+  const entries = state.data.players
+    .filter((p) => r.id in p.rounds)
+    .map((p) => ({ p, pts: p.rounds[r.id], live: r.id === state.data.current_round ? p.live : 0, picks: picksFor(r.id, p.key) }));
+  const scored = entries.some((e) => e.pts !== null);
+  entries.sort((a, b) => (scored ? ((b.pts ?? -1) + b.live) - ((a.pts ?? -1) + a.live) : 0) || a.p.name.localeCompare(b.p.name, undefined, { sensitivity: 'base' }));
+
+  let rank = 0; let prev = null;
+  return h('div', { class: 'rtable', role: 'table', 'aria-label': `${roundShort(r)} results` },
+    entries.map((e, i) => {
+      const value = scored ? (e.pts ?? 0) + e.live : null;
+      if (value !== prev) { rank = i + 1; prev = value; }
+      return h('div', { class: `rrow${e.p.key === state.me ? ' is-me' : ''}`, role: 'row' },
+        h('span', { class: 'rrow__rank', role: 'cell', text: scored ? rank : '' }),
+        h('button', { type: 'button', class: 'rrow__name', role: 'cell', onclick: () => openPlayer(e.p.key) },
+          e.p.name, e.p.key === state.me ? h('span', { class: 'you', text: 'you' }) : null),
+        h('span', { class: 'rrow__grid', role: 'cell', 'aria-label': 'picks' },
+          (e.picks || []).map((pick, idx) => h('i', { class: `sq sq--${pickState(pick, r.matches[idx])}`, title: `${r.matches[idx].title}: ${pickLabel(pick, r.matches[idx])}` }))),
+        h('span', { class: 'rrow__pts', role: 'cell' },
+          scored ? fmtPts(e.pts) : '–',
+          e.live ? h('sup', { class: 'live-pts', text: `+${e.live}` }) : null));
+    }));
+}
+
+function stat(label, value) {
+  return h('div', { class: 'stat' }, h('span', { class: 'stat__value', text: value }), h('span', { class: 'stat__label', text: label }));
+}
+
+function renderRounds() {
+  const view = $('#view-rounds');
+  const r = roundById(state.roundId) || currentRound();
+  const me = state.me && state.players.get(state.me);
+  const myPicks = me ? picksFor(r.id, me.key) : null;
+
+  const picker = h('div', { class: 'chips', role: 'listbox', 'aria-label': 'Choose a round' },
+    [...state.data.rounds].reverse().map((x) => h('button', {
+      type: 'button', role: 'option', class: `chip${x.id === r.id ? ' is-active' : ''}`, 'aria-selected': String(x.id === r.id),
+      onclick: () => { state.roundId = x.id; renderRounds(); syncUrl(); },
+    }, h('b', { text: roundShort(x) }), x.tag || '', x.status === 'live' ? h('span', { class: 'pulse' }) : null)));
+
+  const stats = r.stats.average !== null
+    ? [stat('Entries', r.entries), stat('Average', fmtPts(r.stats.average)), stat('Best', fmtPts(r.stats.top)), stat('Perfect', r.stats.perfect)]
+    : [stat('Entries', r.entries), stat('Matches', r.matches.length), stat('Finished', r.matches.filter((m) => m.status === 'final').length), stat('Live', r.matches.filter((m) => m.status === 'live').length)];
+
+  const myLine = me ? h('p', { class: 'round__mine', text: roundProgressLine(r, me.key) }) : null;
+
+  view.replaceChildren(
+    picker,
+    h('header', { class: 'round__head' },
+      h('div', { class: 'round__titles' },
+        h('p', { class: 'round__eyebrow' }, `Round ${r.number}`, statusBadge(r)),
+        h('h2', { class: 'round__title', text: roundTitle(r) }),
+        h('p', { class: 'round__sub', text: currentSummary(r) }),
+        myLine),
+      h('div', { class: 'stats' }, stats)),
+    h('h3', { class: 'section-title', text: 'Fixtures' }),
+    h('ol', { class: 'fixtures' }, r.matches.map((m) => fixture(r, m, myPicks))),
+    h('h3', { class: 'section-title' }, r.stats.average !== null ? 'Round table' : 'Entries', h('span', { class: 'section-title__count', text: r.entries })),
+    r.entries ? roundStandings(r) : h('div', { class: 'empty', text: 'No picks submitted yet.' }),
+  );
+  const active = view.querySelector('.chip.is-active');
+  if (active) active.scrollIntoView({ block: 'nearest', inline: 'center' });
+}
+
+/* ------------------------------------------------------------------ player sheet */
+
+let lastFocus = null;
+
+function openPlayer(key, { push = true } = {}) {
+  const p = state.players.get(key);
+  if (!p) return;
+  state.openPlayer = key;
+  lastFocus = document.activeElement;
+  renderPlayer(p);
+  const sheet = $('#sheet');
+  sheet.hidden = false;
+  document.body.classList.add('no-scroll');
+  requestAnimationFrame(() => sheet.classList.add('is-open'));
+  $('.sheet__panel').focus();
+  if (push) syncUrl();
+}
+
+function closePlayer({ push = true } = {}) {
+  const sheet = $('#sheet');
+  if (sheet.hidden) return;
+  state.openPlayer = null;
+  sheet.classList.remove('is-open');
+  document.body.classList.remove('no-scroll');
+  setTimeout(() => { if (!state.openPlayer) sheet.hidden = true; }, 200);
+  if (lastFocus && lastFocus.focus) lastFocus.focus();
+  if (push) syncUrl();
+}
+
+function pointsChart(p) {
+  const rounds = state.data.rounds;
+  const max = Math.max(10, ...rounds.map((r) => r.matches.length));
+  return h('div', { class: 'chart', role: 'img', 'aria-label': rounds.map((r) => `${roundShort(r)}: ${r.id in p.rounds ? fmtPts(p.rounds[r.id]) : 'did not play'}`).join(', ') },
+    rounds.map((r) => {
+      const played = r.id in p.rounds;
+      const pts = p.rounds[r.id];
+      const avg = r.stats.average;
+      return h('button', { type: 'button', class: `chart__col${played ? '' : ' is-missing'}`, onclick: () => scrollToRound(r.id), title: roundTitle(r) },
+        h('span', { class: 'chart__track' },
+          avg !== null ? h('span', { class: 'chart__avg', style: `bottom:${(100 * avg) / max}%`, title: `Round average ${fmtPts(avg)}` }) : null,
+          played && pts !== null ? h('span', { class: `chart__bar${r.official ? '' : ' is-unofficial'}`, style: `height:${Math.max(3, (100 * pts) / max)}%` }) : null),
+        h('span', { class: 'chart__val', text: played ? fmtPts(pts) : '' }),
+        h('span', { class: 'chart__label', text: roundShort(r) }));
+    }));
+}
+
+function scrollToRound(id) {
+  const el = $(`#sheet-body [data-round="${id}"]`);
+  if (!el) return;
+  el.open = true;
+  el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+function playerRound(p, r, open) {
+  const picks = picksFor(r.id, p.key);
+  if (!picks) return null;
+  const pts = p.rounds[r.id];
+  const live = r.id === state.data.current_round ? p.live : 0;
+  return h('details', { class: 'pr', dataset: { round: r.id }, open },
+    h('summary', { class: 'pr__summary' },
+      h('span', { class: 'pr__name' }, h('b', { text: roundShort(r) }), ` ${r.tag || ''}`),
+      r.status !== 'final' ? statusBadge(r) : null,
+      h('span', { class: 'pr__grid', 'aria-hidden': 'true' }, picks.map((pick, i) => h('i', { class: `sq sq--${pickState(pick, r.matches[i])}` }))),
+      h('span', { class: 'pr__pts' }, `${fmtPts(pts)}`, live ? h('sup', { class: 'live-pts', text: `+${live}` }) : null, h('small', { text: ' pts' }))),
+    h('ul', { class: 'pr__list' }, r.matches.map((m, i) => {
+      const pick = picks[i];
+      const share = pick && m.dist.total ? Math.round((100 * m.dist[pick.toLowerCase()]) / m.dist.total) : null;
+      return h('li', { class: 'pr__item' },
+        h('span', { class: 'pr__match' },
+          h('span', { class: 'pr__teams', text: m.home ? `${m.home} v ${m.away}` : m.title }),
+          h('span', { class: 'pr__result' }, m.score ? h('b', { text: m.score }) : null, m.status === 'live' ? ' live' : '', m.status !== 'final' && m.status !== 'live' && m.kickoff ? kickoffFmt.format(new Date(m.kickoff)) : '')),
+        h('span', { class: 'pr__pick' },
+          pickChip(pick, m),
+          share !== null ? h('span', { class: `pr__share${share <= 20 ? ' is-bold' : ''}`, text: `${share}% picked` }) : null));
+    })));
+}
+
+function renderPlayer(p) {
+  const isMe = state.me === p.key;
+  const best = p.best && roundById(p.best.round);
+  const body = $('#sheet-body');
+  const roundsDesc = [...state.data.rounds].reverse();
+  const firstPlayed = roundsDesc.find((r) => picksFor(r.id, p.key));
+
+  body.replaceChildren(
+    h('div', { class: 'ph' },
+      avatar(p.name, true),
+      h('div', { class: 'ph__text' },
+        h('h2', { id: 'sheet-title', class: 'ph__name', text: p.name }),
+        p.aliases.length ? h('p', { class: 'ph__aliases', text: `Also as ${p.aliases.filter((a) => a !== p.name).join(', ')}` }) : null),
+      h('div', { class: 'ph__actions' },
+        h('button', { type: 'button', class: 'icon-btn', onclick: () => sharePlayer(p), 'aria-label': 'Share profile link', title: 'Share' }, icon('share')),
+        h('button', { type: 'button', class: 'icon-btn', onclick: () => closePlayer(), 'aria-label': 'Close', title: 'Close' }, icon('close')))),
+    h('div', { class: 'ph__stats' },
+      h('div', { class: 'stat stat--hero' }, h('span', { class: 'stat__value' }, `#${p.rank}`, movement(p)), h('span', { class: 'stat__label', text: `of ${state.data.players.length}` })),
+      stat('Points', fmtPts(p.total)),
+      stat('Accuracy', p.accuracy !== null ? `${p.accuracy}%` : '–'),
+      stat('Best round', best ? `${fmtPts(p.best.points)} · ${roundShort(best)}` : '–')),
+    h('button', { type: 'button', class: `btn btn--me${isMe ? ' is-me' : ''}`, 'aria-pressed': String(isMe),
+                  onclick: () => { setMe(isMe ? null : p.key); renderPlayer(p); } },
+      icon(isMe ? 'check' : 'star', 'icon icon--sm'), isMe ? 'This is you' : 'This is me — pin to top'),
+    h('h3', { class: 'section-title', text: 'Points per round' }),
+    pointsChart(p),
+    h('p', { class: 'hint', text: 'Line = round average. Faded bars are not confirmed by the organizer yet.' }),
+    h('h3', { class: 'section-title', text: 'Picks' }),
+    ...roundsDesc.map((r) => playerRound(p, r, r === firstPlayed)).filter(Boolean),
+  );
+}
+
+async function sharePlayer(p) {
+  const url = new URL(location.origin + location.pathname);
+  url.searchParams.set('player', p.name);
+  const data = { title: `${p.name} · Prediction League`, text: `${p.name} is #${p.rank} with ${fmtPts(p.total)} pts`, url: url.href };
+  try {
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) return await navigator.share(data);
+    await navigator.clipboard.writeText(url.href);
+    toast('Link copied');
+  } catch (err) {
+    if (err && err.name !== 'AbortError') toast('Could not copy the link');
+  }
+}
+
+function setMe(key) {
+  state.me = key;
+  store.set('pl.me', key);
+  renderMe();
+  if (state.data) { renderStandings(); renderRounds(); }
+  toast(key ? 'Pinned — you will be highlighted everywhere' : 'Unpinned');
+}
+
+let toastTimer = null;
+function toast(message) {
+  const el = $('#toast');
+  el.textContent = message;
+  el.hidden = false;
+  el.classList.add('is-visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.classList.remove('is-visible'); setTimeout(() => { el.hidden = true; }, 200); }, 2200);
+}
+
+/* ------------------------------------------------------------------ URL state */
+
+function syncUrl() {
+  const url = new URL(location.href);
+  url.search = '';
+  if (state.view === 'rounds') url.searchParams.set('round', state.roundId);
+  if (state.openPlayer) url.searchParams.set('player', state.players.get(state.openPlayer).name);
+  if (url.href !== location.href) history.pushState(null, '', url);
+}
+
+function applyUrl() {
+  const params = new URLSearchParams(location.search);
+  const round = params.get('round');
+  if (round && state.data && roundById(round)) {
+    state.roundId = round;
+    setView('rounds', { push: false });
+    renderRounds();
+  }
+  const name = params.get('player') || params.get('user');
+  const key = name && name.replace(/^\/?u\//i, '').trim().toLowerCase();
+  if (key && state.players.has(key)) openPlayer(key, { push: false });
+  else closePlayer({ push: false });
+}
+
+window.addEventListener('popstate', () => {
+  const params = new URLSearchParams(location.search);
+  setView(params.get('round') ? 'rounds' : 'standings', { push: false });
+  if (params.get('round')) { state.roundId = params.get('round'); renderRounds(); }
+  applyUrl();
+});
+
+/* ------------------------------------------------------------------ boot */
+
+let firstRender = true;
+
+function renderAll() {
+  renderBanner();
+  renderMe();
+  renderCurrent();
+  renderStandings();
+  renderRounds();
+  setView(state.view, { push: false });
+  if (state.openPlayer && state.players.has(state.openPlayer)) renderPlayer(state.players.get(state.openPlayer));
+  if (firstRender) {
+    firstRender = false;
+    applyUrl();
+  }
+}
+
+function boot() {
+  setupSearch();
+  for (const btn of document.querySelectorAll('.tabs__btn')) btn.addEventListener('click', () => setView(btn.dataset.view));
+  $('#sync').addEventListener('click', () => load({ force: true }));
+  $('#sheet').addEventListener('click', (e) => { if (e.target.closest('[data-close]')) closePlayer(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.openPlayer) closePlayer();
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('#search-input').focus(); }
+  });
+  setInterval(() => { renderSync(); if (state.data && !document.hidden) renderCurrent(); }, 30000);
+  setView(state.view, { push: false });
+  load();
+}
+
+boot();

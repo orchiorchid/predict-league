@@ -2,372 +2,89 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
-  <title>🏆 Prediction League — Live Results & Standings</title>
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Lucide Icons -->
-  <script src="https://unpkg.com/lucide@latest"></script>
-  <!-- Custom Styles -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Prediction League</title>
+  <meta name="description" content="Standings, live scores and everyone's picks for the Prediction League.">
+  <meta name="theme-color" content="#0b1016" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f4f6f8" media="(prefers-color-scheme: light)">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>">
   <link rel="stylesheet" href="/static/styles.css">
-  <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: {
-              50: '#eef2ff',
-              100: '#e0e7ff',
-              500: '#6366f1',
-              600: '#4f46e5',
-              700: '#4338ca',
-              900: '#312e81',
-            }
-          }
-        }
-      }
-    }
-  </script>
 </head>
-<body class="bg-slate-950 text-slate-100 antialiased selection:bg-indigo-500 selection:text-white">
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
 
-  <!-- TOP NAVIGATION / HEADER -->
-  <header class="border-b border-slate-800/80 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-2 sm:gap-4">
-      <div class="flex items-center space-x-2.5 sm:space-x-3">
-        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/20 shrink-0">
-          <i data-lucide="trophy" class="w-5 h-5 text-white"></i>
-        </div>
-        <div>
-          <h1 class="text-base sm:text-lg font-bold tracking-tight text-white flex items-center gap-1.5 sm:gap-2 leading-tight">
-            Prediction League
-            <span class="text-[10px] sm:text-xs font-semibold px-1.5 sm:px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Live</span>
-          </h1>
-          <p class="text-[11px] sm:text-xs text-slate-400 truncate max-w-[180px] sm:max-w-none">Results & Standings Tracker</p>
-        </div>
-      </div>
-
-      <div class="flex items-center space-x-2 sm:space-x-3">
-        <!-- Live status indicator with spinner -->
-        <div class="hidden md:flex items-center space-x-2 text-xs text-slate-400 bg-slate-800/60 px-3 py-1.5 rounded-lg border border-slate-700/50">
-          <span id="sync-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span id="sync-spinner" class="spinner-sm hidden"></span>
-          <span id="sync-status">Syncing...</span>
-        </div>
-
-        <!-- Google Sheet External Link -->
-        <a id="sheet-link" href="https://docs.google.com/spreadsheets/d/1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4/edit?gid=304172133" target="_blank" rel="noopener noreferrer" 
-           class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 hover:text-white transition border border-slate-700 active:scale-95" title="Open Google Sheet">
-          <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-400"></i>
-          <span class="hidden sm:inline">Sheet</span>
-          <i data-lucide="external-link" class="w-3 h-3 opacity-60 hidden sm:inline"></i>
-        </a>
-
-        <!-- Force Refresh Button with spinner -->
-        <button id="refresh-btn" class="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-95 transition shadow-sm shadow-indigo-600/30 disabled:opacity-75 disabled:cursor-not-allowed">
-          <i data-lucide="refresh-cw" id="refresh-icon" class="w-3.5 h-3.5"></i>
-          <span id="refresh-spinner" class="spinner-sm hidden"></span>
-          <span id="refresh-text" class="hidden xs:inline">Refresh</span>
+  <header class="topbar">
+    <div class="wrap topbar__inner">
+      <a class="brand" href="/" aria-label="Prediction League home">
+        <span class="brand__mark" aria-hidden="true">⚽</span>
+        <span class="brand__name">Prediction League</span>
+      </a>
+      <div class="topbar__actions">
+        <button class="sync" id="sync" type="button" title="Refresh now">
+          <span class="sync__dot" aria-hidden="true"></span>
+          <span class="sync__text" id="sync-text">Loading…</span>
         </button>
+        <a class="icon-btn" id="sheet-link" href="#" target="_blank" rel="noopener noreferrer" title="Open the Google Sheet" aria-label="Open the Google Sheet">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z"/><path d="M14 3v6h6M8 13h8M8 17h8M12 11v8"/></svg>
+        </a>
       </div>
     </div>
   </header>
 
-  <!-- MAIN CONTAINER -->
-  <main class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-6 sm:space-y-8">
+  <main id="main" class="wrap">
+    <div id="banner" class="banner" hidden></div>
 
-    <!-- SEARCH & HERO SECTION -->
-    <section class="relative">
-      <div class="glass-panel rounded-2xl p-5 sm:p-8 relative overflow-hidden border border-slate-800 shadow-2xl">
-        <!-- Decorative Glow -->
-        <div class="absolute -right-20 -top-20 w-64 h-64 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none"></div>
-        <div class="absolute -left-20 -bottom-20 w-64 h-64 bg-violet-600/15 rounded-full blur-3xl pointer-events-none"></div>
-
-        <div class="max-w-2xl mx-auto text-center space-y-3">
-          <h2 class="text-xl sm:text-3xl font-extrabold tracking-tight text-white">
-            Find Your Results
-          </h2>
-          <p class="text-xs sm:text-sm text-slate-400">
-            Search for your Reddit / Google Form username to view your rank, total points, and predictions breakdown.
-          </p>
-
-          <!-- Search Input Box (Input with >=16px font on mobile to prevent iOS auto-zoom) -->
-          <div class="relative mt-4" id="search-container">
-            <div class="relative flex items-center">
-              <i data-lucide="search" class="w-5 h-5 text-slate-400 absolute left-4 pointer-events-none"></i>
-              <input type="text" id="search-input" autocomplete="off" autocapitalize="none"
-                     placeholder="Enter username (e.g. sockodile, Qqq666)..." 
-                     class="w-full pl-12 pr-12 py-3.5 bg-slate-900/90 text-white placeholder-slate-500 rounded-xl border border-slate-700/80 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none text-base sm:text-sm transition shadow-inner">
-              
-              <!-- Search action area: Spinner and Clear button -->
-              <div class="absolute right-3.5 flex items-center space-x-1.5">
-                <span id="search-spinner" class="spinner-sm hidden"></span>
-                <button id="search-clear" class="hidden text-slate-400 hover:text-white p-1 rounded active:scale-90">
-                  <i data-lucide="x" class="w-4 h-4"></i>
-                </button>
-              </div>
-            </div>
-
-            <!-- Autocomplete dropdown -->
-            <div id="autocomplete-list" class="hidden absolute left-0 right-0 top-full mt-2 bg-slate-900/95 backdrop-blur-md border border-slate-700/80 rounded-xl shadow-2xl overflow-hidden z-30 max-h-64 overflow-y-auto divide-y divide-slate-800">
-              <!-- Autocomplete items inserted dynamically -->
-            </div>
-          </div>
-
-          <!-- Quick access chips for top players (smooth horizontal scroll on mobile) -->
-          <div class="pt-2 flex items-center justify-center gap-2 text-xs text-slate-400 overflow-x-auto scrollbar-none py-1">
-            <span class="text-slate-500 shrink-0">Top:</span>
-            <div id="quick-chips" class="flex items-center gap-2 shrink-0">
-              <span class="spinner-sm"></span>
-            </div>
-          </div>
-        </div>
+    <div class="top">
+    <section class="finder" aria-label="Find a player">
+      <div id="me-card" class="me-card" hidden></div>
+      <div class="search" id="search">
+        <svg class="search__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="search-input" type="search" autocomplete="off" autocapitalize="none" spellcheck="false"
+               placeholder="Find your username" aria-label="Find a player by username"
+               role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list">
+        <ul id="search-results" class="search__results" role="listbox" hidden></ul>
       </div>
     </section>
 
-    <!-- LEADERBOARDS & TABS SECTION -->
-    <section class="space-y-4">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-        <div>
-          <h2 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="list-ordered" class="w-5 h-5 text-indigo-400"></i>
-            Tournament Standings
-          </h2>
-          <p class="text-[11px] sm:text-xs text-slate-400 mt-0.5">Tap on any row to open full results modal</p>
-        </div>
-
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 w-full sm:w-auto">
-          <!-- Quick Jump Dropdown for 50+ rounds -->
-          <div class="relative w-full sm:w-48">
-            <select id="round-jump-select" class="w-full pl-3 pr-8 py-2 bg-slate-900 text-xs text-slate-200 rounded-lg border border-slate-800 focus:border-indigo-500 focus:outline-none cursor-pointer appearance-none">
-              <option value="overall">🏆 Overall Standings</option>
-            </select>
-            <i data-lucide="chevron-down" class="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-2.5 pointer-events-none"></i>
-          </div>
-
-          <!-- In-table search filter -->
-          <div class="relative w-full sm:w-56">
-            <i data-lucide="filter" class="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none"></i>
-            <input type="text" id="table-filter-input" placeholder="Filter by username..."
-                   class="w-full pl-9 pr-3 py-2 bg-slate-900 text-sm sm:text-xs text-white placeholder-slate-500 rounded-lg border border-slate-800 focus:border-indigo-500 focus:outline-none">
-          </div>
-        </div>
-      </div>
-
-      <!-- Tournament Category Filter & Dynamic Tabs Container (for 38 PL + 8 UCL + Cups) -->
-      <div class="space-y-2">
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-0.5" id="tournament-category-filters">
-            <button data-cat="all" class="cat-filter-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-sm shrink-0 active:scale-95 transition">All Rounds</button>
-            <button data-cat="PL" class="cat-filter-btn px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800/90 text-slate-400 hover:text-white border border-slate-700/60 shrink-0 active:scale-95 transition">⚽ Premier League</button>
-            <button data-cat="UCL" class="cat-filter-btn px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800/90 text-slate-400 hover:text-white border border-slate-700/60 shrink-0 active:scale-95 transition">🌟 Champions League</button>
-            <button data-cat="CUP" class="cat-filter-btn px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800/90 text-slate-400 hover:text-white border border-slate-700/60 shrink-0 active:scale-95 transition">🏆 Cups</button>
-          </div>
-        </div>
-
-        <!-- Tab Buttons (touch-scrollable) -->
-        <div class="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none -mx-3 px-3 sm:mx-0 sm:px-0" id="tabs-container">
-          <button data-tab="overall" class="tab-btn px-3.5 py-2 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap bg-indigo-600 text-white shadow-md shadow-indigo-600/30 shrink-0">
-            <i data-lucide="globe" class="w-3.5 h-3.5"></i>
-            <span>Overall Standings</span>
-          </button>
-          <!-- Additional round tabs rendered dynamically -->
-        </div>
-      </div>
-
-      <!-- Leaderboard Table Container -->
-      <div class="glass-panel rounded-2xl overflow-hidden border border-slate-800 shadow-xl relative min-h-[220px]">
-        <div class="overflow-x-auto -mx-0">
-          <table class="w-full text-left text-xs text-slate-300" id="leaderboard-table">
-            <thead class="bg-slate-900/90 text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800 font-semibold sticky top-0 z-10 backdrop-blur-sm">
-              <tr id="table-headers">
-                <!-- Headers rendered dynamically -->
-              </tr>
-            </thead>
-            <tbody id="table-body" class="divide-y divide-slate-800/60">
-              <!-- Initial Skeleton Loading Rows -->
-              <tr>
-                <td colspan="8" class="text-center py-12 text-slate-400">
-                  <div class="flex flex-col items-center justify-center space-y-3">
-                    <div class="spinner-md"></div>
-                    <span class="text-xs font-medium text-slate-400">Loading standings from Google Sheets...</span>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Table Footer / Count -->
-        <div class="p-3 bg-slate-900/60 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <span id="table-count-label">Loading participants...</span>
-          <span class="text-[11px] text-slate-500 hidden sm:inline">Tap any row to view full predictions</span>
-        </div>
-      </div>
+    <section id="current" class="current" aria-live="polite">
+      <div class="skeleton skeleton--card"></div>
     </section>
+    </div>
 
-    <!-- MATCHES VOTING STATS -->
-    <section class="space-y-4 pt-2">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
-            <i data-lucide="pie-chart" class="w-5 h-5 text-indigo-400"></i>
-            Match Predictions Breakdown
-          </h2>
-          <p class="text-[11px] sm:text-xs text-slate-400 mt-0.5">Community voting statistics (Home win / Draw / Away win) and actual results</p>
-        </div>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button class="tabs__btn" role="tab" id="tab-standings" data-view="standings" aria-selected="true">Standings</button>
+      <button class="tabs__btn" role="tab" id="tab-rounds" data-view="rounds" aria-selected="false">Rounds</button>
+    </nav>
 
-        <!-- Distribution Round Toggle Tabs -->
-        <div class="flex items-center gap-2 overflow-x-auto pb-1" id="dist-tabs-container">
-          <button data-dist-tab="r6" class="dist-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 bg-indigo-600 text-white shadow-sm shadow-indigo-600/30">
-            <span>Round 6 (PL MD4)</span>
-            <span class="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">Active</span>
-          </button>
-          <button data-dist-tab="r5" class="dist-tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700">
-            <span>Round 5 (UCL MD1)</span>
-          </button>
-        </div>
-      </div>
-
-      <div id="matches-grid" class="grid grid-cols-1 md:grid-cols-2 gap-3.5 sm:gap-4">
-        <!-- Initial Loading skeleton for matches -->
-        <div class="glass-panel rounded-xl p-6 border border-slate-800 col-span-full text-center">
-          <div class="flex items-center justify-center space-x-2 text-slate-400">
-            <span class="spinner-sm"></span>
-            <span class="text-xs">Loading match distributions...</span>
-          </div>
-        </div>
-      </div>
+    <section id="view-standings" class="view" role="tabpanel" aria-labelledby="tab-standings">
+      <div class="skeleton skeleton--table"></div>
     </section>
-
+    <section id="view-rounds" class="view" role="tabpanel" aria-labelledby="tab-rounds" hidden></section>
   </main>
 
-  <!-- ============================================================= -->
-  <!-- PARTICIPANT RESULTS MODAL & BOTTOM SHEET (MOBILE OPTIMIZED)   -->
-  <!-- ============================================================= -->
-  <div id="user-modal" class="hidden fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
-    <!-- Backdrop with blur -->
-    <div id="modal-backdrop" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md modal-backdrop-animate"></div>
+  <footer class="footer wrap">
+    <details class="rules">
+      <summary>How scoring works</summary>
+      <ul>
+        <li>One point for every correct Home / Draw / Away pick.</li>
+        <li>Cup ties decided on penalties count as a win for the side that went through.</li>
+        <li>Rounds marked <b>Final</b> are published by the organizer in the sheet. Scores for the round in play come from live results and may change until the organizer confirms them.</li>
+        <li>Ranks are shared on equal points.</li>
+      </ul>
+    </details>
+    <p class="footer__meta">Data from the organizer's <a id="footer-sheet" href="#" target="_blank" rel="noopener noreferrer">Google Sheet</a> · live scores via ESPN</p>
+  </footer>
 
-    <!-- Modal Content Card / Bottom Sheet -->
-    <div class="relative w-full sm:max-w-2xl md:max-w-3xl bg-slate-900 border-t sm:border border-slate-700/80 rounded-t-3xl sm:rounded-2xl shadow-2xl z-10 max-h-[90vh] sm:max-h-[85vh] flex flex-col overflow-hidden modal-content-animate">
-      
-      <!-- Mobile Pull Bar Handle -->
-      <div class="pt-3 pb-1 sm:hidden flex justify-center cursor-grab active:cursor-grabbing">
-        <div class="w-12 h-1.5 rounded-full bg-slate-700"></div>
-      </div>
-
-      <!-- Modal Header -->
-      <div class="p-5 sm:p-6 border-b border-slate-800 flex items-center justify-between gap-3 bg-slate-900/90 backdrop-blur-md sticky top-0 z-10 shrink-0">
-        <div class="flex items-center space-x-3 sm:space-x-4 min-w-0">
-          <div id="user-avatar" class="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-lg sm:text-xl font-black text-white shadow-lg shadow-indigo-500/20 shrink-0">
-            U
-          </div>
-          <div class="min-w-0">
-            <div class="flex items-center gap-2">
-              <h3 id="profile-username" class="text-lg sm:text-2xl font-black text-white truncate">Username</h3>
-              <span id="profile-medal" class="hidden text-base sm:text-lg">🥇</span>
-            </div>
-            <div class="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5 truncate">
-              <span id="profile-rank" class="font-bold text-indigo-400">#--</span>
-              <span>•</span>
-              <span id="profile-total-score" class="font-bold text-emerald-400">-- pts</span>
-              <span id="profile-aliases-badge" class="hidden px-2 py-0.2 rounded-full bg-slate-800 border border-slate-700 text-slate-300 text-[10px] truncate max-w-[150px]"></span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Action buttons: Share & Close -->
-        <div class="flex items-center space-x-1 sm:space-x-2 shrink-0">
-          <button id="copy-link-btn" class="p-2 sm:px-3 sm:py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-xl border border-slate-700 transition flex items-center gap-1.5 active:scale-95" title="Copy profile link">
-            <i data-lucide="share-2" class="w-4 h-4 text-indigo-400"></i>
-            <span class="hidden sm:inline">Share</span>
-          </button>
-          <button id="close-modal-btn" class="p-2 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded-xl border border-slate-700/60 transition active:scale-95" title="Close">
-            <i data-lucide="x" class="w-5 h-5"></i>
-          </button>
-        </div>
-      </div>
-
-      <!-- Modal Body (Scrollable) -->
-      <div class="p-5 sm:p-6 overflow-y-auto space-y-6 relative overscroll-contain">
-        
-        <!-- Loading Overlay for Modal -->
-        <div id="modal-loading-overlay" class="hidden absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-20 flex flex-col items-center justify-center space-y-3">
-          <div class="spinner-lg"></div>
-          <p class="text-xs sm:text-sm font-medium text-slate-300 animate-pulse">Loading participant predictions...</p>
-        </div>
-
-        <!-- Scores Across Rounds Breakdown with Accordion & Category Filter for 50+ rounds -->
-        <div class="space-y-3">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2">
-            <div>
-              <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-                <i data-lucide="bar-chart-2" class="w-4 h-4 text-indigo-400"></i>
-                Tournament Rounds Breakdown
-              </h4>
-              <p class="text-[11px] text-slate-500 mt-0.5">Click any round card below to filter and view predictions or score breakdown</p>
-            </div>
-
-            <!-- Modal Tournament Controls: Category Filter & Accordion Toggle -->
-            <div class="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-              <div class="flex items-center gap-1" id="modal-cat-filters">
-                <button data-mcat="all" class="mcat-btn px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-600 text-white shrink-0 active:scale-95 transition">All</button>
-                <button data-mcat="PL" class="mcat-btn px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 hover:text-white shrink-0 active:scale-95 transition">⚽ PL</button>
-                <button data-mcat="UCL" class="mcat-btn px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 hover:text-white shrink-0 active:scale-95 transition">🌟 UCL</button>
-                <button data-mcat="CUP" class="mcat-btn px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-slate-400 hover:text-white shrink-0 active:scale-95 transition">🏆 Cups</button>
-              </div>
-              <button id="toggle-all-rounds-btn" class="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-800 text-indigo-300 hover:text-white border border-slate-700 shrink-0 flex items-center gap-1 active:scale-95 transition">
-                <span id="toggle-rounds-text">Expand All</span>
-                <i data-lucide="chevron-down" id="toggle-rounds-icon" class="w-3 h-3"></i>
-              </button>
-            </div>
-          </div>
-
-          <!-- Round cards container (Scrollable / Collapsible Accordion Rail) -->
-          <div id="modal-rounds-wrapper" class="max-h-[175px] sm:max-h-[220px] overflow-y-auto pr-1 transition-all duration-300">
-            <div id="profile-rounds-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2.5">
-              <!-- Round cards injected dynamically with active click and highlight -->
-            </div>
-          </div>
-        </div>
-
-        <!-- Predictions / Round Detail Section -->
-        <div class="space-y-3 pt-2">
-          <div class="flex items-center justify-between gap-2.5 border-b border-slate-800 pb-2.5">
-            <div class="flex items-center gap-2 min-w-0">
-              <h4 class="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5 truncate">
-                <i data-lucide="check-circle-2" class="w-4 h-4 text-indigo-400 shrink-0"></i>
-                <span id="profile-predictions-title" class="truncate">Match Predictions</span>
-              </h4>
-            </div>
-            <div id="profile-r5-summary-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700 font-medium shrink-0 whitespace-nowrap">
-              --
-            </div>
-          </div>
-
-          <div id="profile-predictions-container" class="overflow-hidden rounded-xl border border-slate-800 bg-slate-950/40">
-            <!-- Predictions table / list injected dynamically -->
-          </div>
-        </div>
-      </div>
-
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet__backdrop" data-close></div>
+    <div class="sheet__panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1">
+      <div class="sheet__grip" aria-hidden="true"></div>
+      <div id="sheet-body"></div>
     </div>
   </div>
 
-  <!-- TOAST NOTIFICATION CONTAINER -->
-  <div id="toast-container"></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <!-- FOOTER -->
-  <footer class="border-t border-slate-800/80 bg-slate-950 py-6 sm:py-8 text-center text-xs text-slate-500">
-    <div class="max-w-7xl mx-auto px-4 space-y-1.5">
-      <p>Prediction League Service &middot; Real-time Google Sheets Synchronization</p>
-      <p class="text-[11px]">Sheet ID: <a href="https://docs.google.com/spreadsheets/d/1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4/edit?gid=304172133" target="_blank" class="text-indigo-400 hover:underline">1oibdWWMrTXoFXozDIo4jfcukfNNJOfMbrTduzDS0Ji4</a></p>
-    </div>
-  </footer>
-
-  <!-- Scripts -->
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js" defer></script>
 </body>
 </html>
