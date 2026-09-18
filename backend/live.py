@@ -136,28 +136,38 @@ class LiveResults:
         self._cache: Dict[str, Any] = {}
         self._lock = threading.Lock()
 
-    HOSTS = ("site.api.espn.com", "site.web.api.espn.com")
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/126.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-GB,en;q=0.9",
-        "Referer": "https://www.espn.com/",
-        "Origin": "https://www.espn.com",
-    }
+    BASE = "https://site.api.espn.com/apis/site/v2/sports/soccer"
+    # ESPN blocks a bare "Chrome" user agent (403) but serves an honest one. Tried in order.
+    HEADER_SETS = (
+        {"User-Agent": "prediction-league/2.0 (+https://github.com/orchiorchid/predict-league)", "Accept": "application/json"},
+        {},  # urllib's default user agent
+    )
+
+    def _get_json(self, url: str) -> Dict[str, Any]:
+        errors = []
+        for headers in self.HEADER_SETS:
+            try:
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    return json.loads(resp.read().decode("utf-8"))
+            except Exception as exc:
+                errors.append(str(exc))
+        raise RuntimeError("; ".join(dict.fromkeys(errors)))
 
     def _fetch(self, slug: str, start: datetime, end: datetime) -> List[Dict[str, Any]]:
-        path = f"/apis/site/v2/sports/soccer/{slug}/scoreboard?dates={start:%Y%m%d}-{end:%Y%m%d}&limit=300"
-        last_error: Optional[Exception] = None
-        for host in self.HOSTS:
+        # One request per calendar month (dates=YYYYMM). ESPN started rejecting date ranges
+        # ("Failed to get events endpoint") in Sept 2026; the range stays as a fallback.
+        try:
+            raw = []
+            for month in months_between(start, end):
+                raw += self._get_json(f"{self.BASE}/{slug}/scoreboard?dates={month}&limit=300").get("events", [])
+        except Exception as month_error:
             try:
-                req = urllib.request.Request(f"https://{host}{path}", headers=self.HEADERS)
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                return [e for e in (parse_event(ev) for ev in data.get("events", [])) if e]
-            except Exception as exc:  # try the next host
-                last_error = exc
-        raise last_error or RuntimeError("ESPN unavailable")
+                raw = self._get_json(
+                    f"{self.BASE}/{slug}/scoreboard?dates={start:%Y%m%d}-{end:%Y%m%d}&limit=300").get("events", [])
+            except Exception as range_error:
+                raise RuntimeError(f"by month: {month_error}; by range: {range_error}") from None
+        return [e for e in (parse_event(ev) for ev in raw) if e]
 
     @staticmethod
     def _ttl_for(events: List[Dict[str, Any]]) -> float:
@@ -193,6 +203,14 @@ class LiveResults:
             return [None] * len(matches)
         events = self.events(window["slug"], window["start"], window["end"])
         return match_events(matches, events, window["earliest"])
+
+
+def months_between(start: datetime, end: datetime) -> List[str]:
+    months, y, m = [], start.year, start.month
+    while (y, m) <= (end.year, end.month):
+        months.append(f"{y}{m:02d}")
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return months
 
 
 def espn_window(competition: str, since: Optional[datetime], now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:

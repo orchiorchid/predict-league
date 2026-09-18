@@ -317,3 +317,28 @@ def test_blocked_espn_tells_the_browser_where_to_load_live_scores(grid):
     assert r7["status"] == "upcoming"
     assert any("403" in w for w in league["warnings"])
     assert by_id(league, "r6")["live_feed"] is None
+
+
+def test_espn_is_queried_by_month_with_range_fallback():
+    from backend.live import LiveResults, months_between
+
+    assert months_between(datetime(2026, 12, 30), datetime(2027, 1, 9)) == ["202612", "202701"]
+
+    calls = []
+
+    class Fake(LiveResults):
+        def __init__(self, fail_months):
+            super().__init__()
+            self.fail_months = fail_months
+
+        def _get_json(self, url):
+            calls.append(url)
+            if "dates=2026" in url and "-" not in url.split("dates=")[1] and self.fail_months:
+                raise RuntimeError("HTTP Error 400")
+            return {"events": []}
+
+    Fake(False)._fetch("eng.1", datetime(2026, 9, 28), datetime(2026, 10, 3))
+    assert [u.split("dates=")[1].split("&")[0] for u in calls] == ["202609", "202610"]
+    calls.clear()
+    Fake(True)._fetch("eng.1", datetime(2026, 9, 28), datetime(2026, 10, 3))
+    assert "dates=20260928-20261003" in calls[-1]

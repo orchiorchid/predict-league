@@ -281,15 +281,28 @@ function parseEspnEvent(ev) {
 
 const espnCache = new Map();
 
-async function espnEvents(feed) {
-  const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/${feed.league}/scoreboard?dates=${feed.dates}&limit=300`;
-  const hit = espnCache.get(url);
-  if (hit && Date.now() - hit.at < 40000) return hit.events;
+async function espnJson(url) {
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`ESPN responded ${res.status}`);
-  const json = await res.json();
-  const events = (json.events || []).map(parseEspnEvent).filter(Boolean);
-  espnCache.set(url, { at: Date.now(), events });
+  return res.json();
+}
+
+async function espnEvents(feed) {
+  const base = `https://site.api.espn.com/apis/site/v2/sports/soccer/${feed.league}/scoreboard`;
+  const key = `${feed.league}:${feed.dates}`;
+  const hit = espnCache.get(key);
+  if (hit && Date.now() - hit.at < 40000) return hit.events;
+  let raw;
+  try {
+    // One request per month: ESPN rejects date ranges since Sept 2026; the range stays as a fallback.
+    const pages = await Promise.all((feed.months || []).map((m) => espnJson(`${base}?dates=${m}&limit=300`)));
+    if (!pages.length) throw new Error('no months');
+    raw = pages.flatMap((page) => page.events || []);
+  } catch (err) {
+    raw = (await espnJson(`${base}?dates=${feed.dates}&limit=300`)).events || [];
+  }
+  const events = raw.map(parseEspnEvent).filter(Boolean);
+  espnCache.set(key, { at: Date.now(), events });
   return events;
 }
 

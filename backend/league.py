@@ -20,7 +20,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from backend.live import espn_window, format_score, outcome_from_scores
+from backend.live import espn_window, format_score, months_between, outcome_from_scores
 from backend.sheet import Grid, as_datetime
 
 OUTCOMES = ("Home", "Draw", "Away")
@@ -301,6 +301,7 @@ def build_league(
             live_feed = None
             if window:
                 live_feed = {"league": window["slug"], "dates": f"{window['start']:%Y%m%d}-{window['end']:%Y%m%d}",
+                             "months": months_between(window["start"], window["end"]),
                              "earliest": _iso(window["earliest"]), "server_ok": False}
             if live and info["code"]:
                 try:
