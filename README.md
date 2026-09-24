@@ -52,7 +52,10 @@ Usernames are merged case-insensitively, and a leading `u/` is ignored.
 | `GET /api/league` | Rounds (matches, results, pick distribution), players (totals, per-round points, rank, movement), compact picks |
 | `GET /api/players/{name}` | One player with every pick and whether it was right |
 | `POST /api/refresh` | Re-read the sheet now (at most once per 20 s) |
-| `GET /api/health` | Liveness check |
+| `GET /api/health` | Liveness plus the running build: `{"ok": true, "version": "2.1", "commit": "<git sha>", "build": "2.1+<sha>", "started_at": ..., "uptime_seconds": ...}` |
+
+The footer of the site shows the same build string, and asset URLs carry it, so a deploy can be verified
+from outside and is never served from a stale cache.
 
 Responses are cached for 60 s. When Google or ESPN fails, the last good data is served with `meta.stale = true`.
 

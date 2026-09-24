@@ -284,6 +284,16 @@ def test_api_player(client):
     assert client.get("/api/players/nobody-at-all").status_code == 404
 
 
+def test_health_and_index_report_the_running_build(client):
+    from backend.version import BUILD
+
+    health = client.get("/api/health").json()
+    assert health["ok"] is True and health["commit"] and health["build"] == BUILD
+    assert client.get("/api/league").json()["meta"]["build"] == BUILD
+    # asset URLs carry the build so a deploy is never served from a stale cache
+    assert f"/static/app.js?v={BUILD}" in client.get("/").text
+
+
 def test_api_serves_frontend(client):
     res = client.get("/")
     assert res.status_code == 200

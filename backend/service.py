@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Optional
 from backend.league import build_league, user_key
 from backend.live import LiveResults
 from backend.sheet import download_xlsx, parse_form_grid
+from backend.version import BUILD
 
 log = logging.getLogger("prediction_league")
 
@@ -131,6 +132,7 @@ class LeagueService:
         payload = dict(self._payload or {})
         age = time.time() - self._fetched_at
         payload["meta"] = {
+            "build": BUILD,
             "spreadsheet_url": self.spreadsheet_url,
             "fetched_at": _utc_iso(self._fetched_at),
             "age_seconds": round(age),

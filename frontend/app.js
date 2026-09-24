@@ -421,6 +421,7 @@ function renderBanner() {
   }
   banner.hidden = !meta.stale;
   for (const a of [$('#sheet-link'), $('#footer-sheet')]) a.href = meta.spreadsheet_url;
+  if (meta.build) $('#build').textContent = ` · build ${meta.build}`;
   const liveInBrowser = state.data.rounds.some((r) => r.live_feed && r.live_feed.browser_ok);
   const notes = (state.data.warnings || []).filter((n) => !(liveInBrowser && n.startsWith('Live scores unavailable')));
   $('#notes').hidden = !notes.length;

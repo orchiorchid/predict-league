@@ -5,11 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from backend.service import DEFAULT_SPREADSHEET_ID, LeagueService
+from backend.version import APP_VERSION, BUILD, build_info
 
 logging.basicConfig(level=logging.INFO)
 
@@ -41,7 +42,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Prediction League",
     description="Standings, results and live scores for the Reddit football prediction league.",
-    version="2.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024)
@@ -84,12 +85,23 @@ async def player(name: str):
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True}
+    """Liveness plus which build is running, so a deploy can be verified from outside."""
+    return {"ok": True, **build_info()}
 
 
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
+    def _index_html() -> str:
+        with open(os.path.join(FRONTEND_DIR, "index.html"), encoding="utf-8") as f:
+            html = f.read()
+        # Stamp the build onto the asset URLs so a deploy can never be served from a stale cache.
+        return html.replace("/static/app.js", f"/static/app.js?v={BUILD}").replace(
+            "/static/styles.css", f"/static/styles.css?v={BUILD}")
+
+    INDEX_HTML = _index_html()
+
     @app.get("/", include_in_schema=False)
     async def index():
-        return FileResponse(os.path.join(FRONTEND_DIR, "index.html"), headers={"Cache-Control": "no-cache"})
+        html = INDEX_HTML if os.environ.get("RELOAD_INDEX") != "1" else _index_html()
+        return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
