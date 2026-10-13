@@ -48,6 +48,11 @@ RESULT_RE = re.compile(
 )
 TAG_RE = re.compile(r"^[A-Za-z]{2,5}\s*[A-Za-z0-9/ ]+$")
 
+# "PL MD6 (S2)", "PL MD6 S2", "PL MD6 (Season 2)" -> the round starts season 2.
+SEASON_IN_TAG_RE = re.compile(r"\s*(?:\(\s*S(?:eason)?\s*(\d+)\s*\)|\bSeason\s*(\d+)\s*$|\s+S(\d+)\s*$)", re.IGNORECASE)
+# A free-text note in the tag column, e.g. "Season 2 starts here".
+SEASON_NOTE_RE = re.compile(r"\bseason\s*(\d+)\b", re.IGNORECASE)
+
 LiveResolver = Callable[[str, List[Dict[str, str]], Optional[datetime]], List[Optional[Dict[str, Any]]]]
 
 
@@ -77,6 +82,19 @@ def split_title(title: str) -> Tuple[Optional[str], Optional[str]]:
     if len(parts) == 2:
         return parts[0].strip(), parts[1].strip()
     return None, None
+
+
+def split_season(tag: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+    """Separate a season marker from a round tag: "PL MD6 (S2)" -> ("PL MD6", 2)."""
+    if not tag:
+        return None, None
+    tag = str(tag).strip()
+    m = SEASON_IN_TAG_RE.search(tag)
+    if not m:
+        return tag or None, None
+    season = int(next(g for g in m.groups() if g))
+    clean = (tag[:m.start()] + " " + tag[m.end():]).strip()
+    return clean or None, season
 
 
 def describe_tag(tag: Optional[str]) -> Dict[str, Any]:
@@ -157,6 +175,7 @@ class Layout:
             self.header_tag = self.header_tag or tag
             home, away = split_title(title)
             self.header_matches.append({"title": title, "home": home, "away": away})
+        self.header_tag, self.header_season = split_season(self.header_tag)
         self.answer_key = [normalize_pick(header.get(c)) for c in self.key_cols]
 
 
@@ -185,7 +204,10 @@ def read_entries(grid: Grid, layout: Layout) -> List[Dict[str, Any]]:
 
 def is_marker(row: Dict[str, Any], layout: Layout) -> bool:
     tag = row.get(layout.tag_col)
-    if not isinstance(tag, str) or tag.upper() in ("H", "D", "A") or not TAG_RE.match(tag):
+    if not isinstance(tag, str) or tag.strip().upper() in ("H", "D", "A"):
+        return False
+    tag = split_season(tag)[0]
+    if not tag or not TAG_RE.match(tag):
         return False
     return any(isinstance(row.get(c), str) for c in layout.result_cols)
 
@@ -247,7 +269,7 @@ def build_league(
     else:
         segments.extend({"entries": p, "marker": None} for p in split_unmarked(entries))
 
-    marked_tags = {str(grid[s["marker"]][layout.tag_col]).strip().upper() for s in segments if s["marker"]}
+    marked_tags = {(split_season(grid[s["marker"]][layout.tag_col])[0] or "").upper() for s in segments if s["marker"]}
     if layout.header_tag:
         header_is_new = layout.header_tag.strip().upper() not in marked_tags
     else:
@@ -263,6 +285,8 @@ def build_league(
         unmarked_idx.append(len(segments) - 1)
     open_idx = unmarked_idx[-1] if (unmarked_idx and header_is_new) else None
 
+    segment_seasons = assign_seasons(grid, layout, segments, open_idx)
+
     last_final_outcomes: Optional[List[Optional[str]]] = None
     rounds: List[Dict[str, Any]] = []
     round_entries: List[List[Dict[str, Any]]] = []
@@ -276,7 +300,7 @@ def build_league(
 
         if seg["marker"]:
             row = grid[seg["marker"]]
-            tag = str(row[layout.tag_col]).strip()
+            tag = split_season(row[layout.tag_col])[0]
             results = [parse_result(row.get(c, "")) for c in layout.result_cols]
             matches = []
             for idx, res in enumerate(results):
@@ -379,6 +403,7 @@ def build_league(
             "id": f"r{number}",
             "number": number,
             "tag": tag,
+            "season": segment_seasons[i],
             **info,
             "status": status,
             "official": status == "final",
@@ -398,7 +423,25 @@ def build_league(
         })
         round_entries.append(seg_entries)
 
-    players = build_players(rounds, round_entries)
+    names: Dict[str, Counter] = defaultdict(Counter)
+    for ents in round_entries:
+        for e in ents:
+            names[e["key"]][e["name"]] += 1
+    players = build_players(rounds, round_entries, names)
+
+    current_idx = open_idx if open_idx is not None else len(rounds) - 1
+    current_season = rounds[current_idx]["season"] if rounds else 1
+    seasons = []
+    for number in sorted({r["season"] for r in rounds}):
+        idx = [i for i, r in enumerate(rounds) if r["season"] == number]
+        seasons.append({
+            "id": f"s{number}",
+            "number": number,
+            "name": f"Season {number}",
+            "current": number == current_season,
+            "rounds": [rounds[i]["id"] for i in idx],
+            "players": build_players([rounds[i] for i in idx], [round_entries[i] for i in idx], names),
+        })
     picks = {
         r["id"]: {e["key"]: "".join(PICK_CODES[p] for p in e["picks"]) for e in ents}
         for r, ents in zip(rounds, round_entries)
@@ -410,6 +453,8 @@ def build_league(
     current = rounds[open_idx]["id"] if open_idx is not None else (rounds[-1]["id"] if rounds else None)
     return {
         "current_round": current,
+        "current_season": f"s{current_season}",
+        "seasons": seasons,
         "rounds": rounds,
         "players": players,
         "picks": picks,
@@ -428,14 +473,18 @@ def competition_ranks(items: List[Dict[str, Any]], field: str) -> Dict[str, int]
     return ranks
 
 
-def build_players(rounds: List[Dict[str, Any]], round_entries: List[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    names: Dict[str, Counter] = defaultdict(Counter)
-    for ents in round_entries:
-        for e in ents:
-            names[e["key"]][e["name"]] += 1
+def build_players(
+    rounds: List[Dict[str, Any]],
+    round_entries: List[List[Dict[str, Any]]],
+    names: Dict[str, Counter],
+) -> List[Dict[str, Any]]:
+    """Standings over the given rounds (one season, or all of them). `names` covers every round
+    so a player is called the same thing in every table."""
+    in_scope = {e["key"] for ents in round_entries for e in ents}
 
     players = []
-    for key, variants in names.items():
+    for key in in_scope:
+        variants = names[key]
         name = max(variants.items(), key=lambda kv: (kv[1], any(c.isupper() for c in kv[0])))[0]
         per_round: Dict[str, Optional[float]] = {}
         confirmed = unofficial = 0.0
@@ -475,7 +524,8 @@ def build_players(rounds: List[Dict[str, Any]], round_entries: List[List[Dict[st
         })
 
     # Movement: compare with the table before the latest round that has any results.
-    latest = next((r for r in reversed(rounds) if r["_has_results"]), None)
+    scored = [r for r in rounds if r["_has_results"]]
+    latest = scored[-1] if len(scored) > 1 else None  # after a scope's first round there is no "before"
     ranks = competition_ranks(players, "total")
     if latest:
         for p in players:
@@ -491,3 +541,28 @@ def build_players(rounds: List[Dict[str, Any]], round_entries: List[List[Dict[st
 
     players.sort(key=lambda p: (p["rank"], p["name"].lower()))
     return players
+
+
+def assign_seasons(grid: Grid, layout: Layout, segments: List[Dict[str, Any]], open_idx: Optional[int]) -> List[int]:
+    """Season number of every round. A new season starts at a round whose tag carries a marker
+    ("PL MD6 (S2)"), or at the first round after a note such as "Season 2 starts here"."""
+    notes = []
+    for r, row in grid.items():
+        cell = row.get(layout.tag_col)
+        if r > 1 and isinstance(cell, str) and not is_marker(row, layout):
+            m = SEASON_NOTE_RE.search(cell)
+            if m:
+                notes.append((r, int(m.group(1))))
+
+    seasons, season, prev_first = [], 1, 0
+    for i, seg in enumerate(segments):
+        first = min((e["row"] for e in seg["entries"]), default=10 ** 9)
+        declared = [n for r, n in notes if prev_first < r <= first]
+        if seg["marker"]:
+            declared.append(split_season(grid[seg["marker"]][layout.tag_col])[1])
+        if i == open_idx:
+            declared.append(layout.header_season)
+        season = max([season] + [n for n in declared if n])
+        seasons.append(season)
+        prev_first = first
+    return seasons

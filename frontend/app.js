@@ -93,6 +93,7 @@ const state = {
   sort: 'total',
   filter: '',
   me: store.get('pl.me'),
+  scope: null, // a season id ("s2") or "all"; null until data arrives
   openPlayer: null,
   fetchedAt: 0,
   loading: false,
@@ -102,6 +103,53 @@ const state = {
 
 const roundById = (id) => state.data.rounds.find((r) => r.id === id);
 const currentRound = () => roundById(state.data.current_round) || state.data.rounds[state.data.rounds.length - 1];
+
+/* Seasons: the organizer resets the table now and then. A scope is one season or "all". */
+const seasons = () => state.data.seasons || [];
+const hasSeasons = () => seasons().length > 1;
+const seasonById = (id) => seasons().find((x) => x.id === id);
+const seasonOfRound = (r) => seasons().find((x) => x.rounds.includes(r.id));
+const defaultScope = () => (hasSeasons() ? state.data.current_season : 'all');
+
+function scopeRounds(scope = state.scope) {
+  const season = seasonById(scope);
+  return season ? state.data.rounds.filter((r) => season.rounds.includes(r.id)) : state.data.rounds;
+}
+
+function scopeList(scope = state.scope) {
+  const season = seasonById(scope);
+  return season ? season.players : state.data.players;
+}
+
+function scopeLabel(scope = state.scope, short = false) {
+  const season = seasonById(scope);
+  if (!season) return short ? 'All-time' : 'All-time';
+  return short ? `S${season.number}` : season.name;
+}
+
+/** The player's row in the current scope, or null if they did not play in it. */
+function scopePlayer(key, scope = state.scope) {
+  if (!state.scopeMaps) state.scopeMaps = new Map();
+  if (!state.scopeMaps.has(scope)) state.scopeMaps.set(scope, new Map(scopeList(scope).map((p) => [p.key, p])));
+  return state.scopeMaps.get(scope).get(key) || null;
+}
+
+function setScope(scope, { push = true } = {}) {
+  if (scope !== 'all' && !seasonById(scope)) scope = defaultScope();
+  state.scope = scope;
+  state.sort = 'total';
+  const rounds = scopeRounds();
+  if (!rounds.some((r) => r.id === state.roundId)) {
+    const current = rounds.find((r) => r.id === state.data.current_round);
+    state.roundId = (current || rounds[rounds.length - 1] || currentRound()).id;
+  }
+  renderScope();
+  renderMe();
+  renderStandings();
+  renderRounds();
+  if (state.openPlayer) renderPlayer(state.players.get(state.openPlayer));
+  if (push) syncUrl();
+}
 
 function picksFor(roundId, key) {
   const code = state.data.picks[roundId] && state.data.picks[roundId][key];
@@ -161,11 +209,14 @@ async function load({ force = false } = {}) {
     state.players = new Map(data.players.map((p) => [p.key, p]));
     state.fetchedAt = Date.now() - (data.meta.age_seconds || 0) * 1000;
     state.failed = false;
+    state.scopeMaps = null;
     $('.tabs').hidden = false;
+    if (!state.scope || (state.scope !== 'all' && !seasonById(state.scope))) state.scope = defaultScope();
     if (!state.roundId || !roundById(state.roundId)) state.roundId = data.current_round;
     if (state.me && !state.players.has(state.me)) state.me = null;
     renderAll();
     if (firstLoad && (await overlay) && state.data === data) {
+      state.scopeMaps = null;
       state.players = new Map(data.players.map((p) => [p.key, p]));
       renderAll();
     }
@@ -363,31 +414,41 @@ async function applyBrowserLive(data) {
     m.correct_pct = decided && m.dist.total ? Math.round((100 * m.dist[m.outcome.toLowerCase()]) / m.dist.total) : null;
   }
 
-  const serverRanks = new Map(data.players.map((p) => [p.key, p.rank]));
-  const scores = [];
-  for (const p of data.players) {
-    if (!(r.id in p.rounds)) continue;
-    const code = (data.picks[r.id] || {})[p.key] || '';
-    let pts = 0;
-    let live = 0;
-    r.matches.forEach((m, i) => {
-      if (PICK_CODES[code[i]] !== m.outcome || !m.outcome) return;
-      if (m.status === 'final') pts += 1;
-      else if (m.status === 'live') live += 1;
-    });
-    p.total = p.total - (p.rounds[r.id] || 0) + (finals ? pts : 0);
-    p.rounds[r.id] = finals ? pts : null;
-    p.live = live;
-    if (finals) scores.push(pts);
-  }
-  if (finals) {
-    const ranks = competitionRanks(data.players, (p) => p.total);
-    for (const p of data.players) {
+  // Re-score the all-time table and the table of the season this round belongs to.
+  const season = (data.seasons || []).find((x) => x.rounds.includes(r.id));
+  const tables = [{ players: data.players, rounds: data.rounds }];
+  if (season) tables.push({ players: season.players, rounds: data.rounds.filter((x) => season.rounds.includes(x.id)) });
+  let scores = [];
+  for (const table of tables) {
+    const serverRanks = new Map(table.players.map((p) => [p.key, p.rank]));
+    scores = [];
+    for (const p of table.players) {
+      if (!(r.id in p.rounds)) continue;
+      const code = (data.picks[r.id] || {})[p.key] || '';
+      let pts = 0;
+      let live = 0;
+      r.matches.forEach((m, i) => {
+        if (PICK_CODES[code[i]] !== m.outcome || !m.outcome) return;
+        if (m.status === 'final') pts += 1;
+        else if (m.status === 'live') live += 1;
+      });
+      p.total = p.total - (p.rounds[r.id] || 0) + (finals ? pts : 0);
+      p.rounds[r.id] = finals ? pts : null;
+      p.live = live;
+      if (finals) scores.push(pts);
+    }
+    if (!finals) continue;
+    // No "before" to compare with when this is the first scored round of the table.
+    const hasEarlier = table.rounds.some((x) => x.id !== r.id && x.stats.average !== null);
+    const ranks = competitionRanks(table.players, (p) => p.total);
+    for (const p of table.players) {
       p.rank = ranks.get(p.key);
-      p.prev_rank = p.played === 1 && r.id in p.rounds ? null : serverRanks.get(p.key);
+      p.prev_rank = !hasEarlier || (p.played === 1 && r.id in p.rounds) ? null : serverRanks.get(p.key);
       p.movement = p.prev_rank ? p.prev_rank - p.rank : null;
     }
-    data.players.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    table.players.sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+  }
+  if (finals) {
     r.stats = {
       average: Math.round((100 * scores.reduce((a, b) => a + b, 0)) / scores.length) / 100,
       top: Math.max(...scores),
@@ -445,7 +506,10 @@ function renderFatal(err) {
 
 function movement(p, compact = false) {
   if (p.movement === null || p.movement === undefined) {
-    return p.prev_rank === null && p.played === 1 ? h('span', { class: 'move move--new', text: 'new' }) : null;
+    // "new" only means something once the table has a round behind it; in a season's
+    // first round everyone is new.
+    const tableHasHistory = scopeRounds().filter((r) => r.stats.average !== null).length > 1;
+    return tableHasHistory && p.prev_rank === null && p.played === 1 ? h('span', { class: 'move move--new', text: 'new' }) : null;
   }
   if (p.movement === 0) return compact ? h('span', { class: 'move move--same', text: '–', 'aria-label': 'no change' }) : null;
   const up = p.movement > 0;
@@ -474,9 +538,13 @@ function roundProgressLine(r, key) {
 
 function renderMe() {
   const card = $('#me-card');
-  const p = state.me && state.players.get(state.me);
-  card.hidden = !p;
-  if (!p) return;
+  const identity = state.me && state.players.get(state.me);
+  card.hidden = !identity;
+  if (!identity) return;
+  // Rank in the season being viewed; all-time if they have not played in it.
+  const inScope = scopePlayer(identity.key);
+  const p = inScope || identity;
+  const tableName = hasSeasons() ? (inScope ? scopeLabel(state.scope, true) : 'All-time') : '';
   const r = currentRound();
   card.replaceChildren(
     h('button', { class: 'me-card__main', type: 'button', onclick: () => openPlayer(p.key), 'aria-label': `Open your profile, ${p.name}` },
@@ -486,8 +554,38 @@ function renderMe() {
         h('span', { class: 'me-card__sub', text: roundProgressLine(r, p.key) })),
       h('span', { class: 'me-card__rank' },
         h('span', { class: 'me-card__pos' }, `#${p.rank}`, movement(p)),
-        h('span', { class: 'me-card__pts', text: `${fmtPts(p.total)} pts` }))),
+        h('span', { class: 'me-card__pts', text: `${fmtPts(p.total)} pts${tableName ? ` · ${tableName}` : ''}` }))),
   );
+}
+
+/* ------------------------------------------------------------------ season switcher */
+
+function scopeButton(id, label, sub) {
+  const active = state.scope === id;
+  return h('button', { type: 'button', role: 'tab', class: `scope__btn${active ? ' is-active' : ''}`, 'aria-selected': String(active),
+                       onclick: () => { if (state.scope !== id) setScope(id); } },
+    h('span', { class: 'scope__name', text: label }), sub ? h('span', { class: 'scope__sub', text: sub }) : null);
+}
+
+function renderScope() {
+  const el = $('#scope');
+  el.hidden = !hasSeasons();
+  if (el.hidden) return;
+  const buttons = [...seasons()].reverse().map((x) =>
+    scopeButton(x.id, x.name, x.current ? 'now' : plural(x.rounds.length, 'round')));
+  el.replaceChildren(...buttons, scopeButton('all', 'All-time', plural(state.data.rounds.length, 'round')));
+}
+
+function seasonSummary() {
+  const season = seasonById(state.scope);
+  if (!season || season.current || !season.players.length) return null;
+  const top = season.players.filter((p) => p.rank === 1);
+  return h('div', { class: 'season-card' },
+    h('span', { class: 'season-card__eyebrow', text: `${season.name} · final table` }),
+    h('span', { class: 'season-card__title' },
+      top.length === 1 ? 'Champion: ' : 'Joint winners: ',
+      top.map((p, i) => [i ? ', ' : '', h('button', { type: 'button', class: 'link-btn', onclick: () => openPlayer(p.key), text: p.name })])),
+    h('span', { class: 'season-card__sub', text: `${fmtPts(top[0].total)} pts · ${plural(season.rounds.length, 'round')} · ${plural(season.players.length, 'player')}` }));
 }
 
 function searchPlayers(query) {
@@ -524,7 +622,7 @@ function setupSearch() {
                 onmousedown: (e) => { e.preventDefault(); choose(p); } },
         avatar(p.name),
         h('span', { class: 'search__name' }, highlight(p.name, input.value)),
-        h('span', { class: 'search__meta', text: `#${p.rank} · ${fmtPts(p.total)} pts` }))) :
+        h('span', { class: 'search__meta', text: (() => { const x = scopePlayer(p.key) || p; return `#${x.rank} · ${fmtPts(x.total)} pts`; })() }))) :
       [h('li', { class: 'search__empty', text: 'No player with that name' })]));
     input.setAttribute('aria-activedescendant', active >= 0 ? `sr-${active}` : '');
   };
@@ -579,9 +677,14 @@ function renderCurrent() {
   const el = $('#current');
   if (!r) return el.replaceChildren();
   el.replaceChildren(
-    h('button', { class: `current__card current__card--${r.status}`, type: 'button', onclick: () => { showRound(r.id); scrollToTabs(); } },
+    h('button', { class: `current__card current__card--${r.status}`, type: 'button', onclick: () => {
+      const season = seasonOfRound(r);
+      if (hasSeasons() && season && state.scope !== season.id && state.scope !== 'all') setScope(season.id, { push: false });
+      showRound(r.id);
+      scrollToTabs();
+    } },
       h('span', { class: 'current__top' },
-        h('span', { class: 'current__eyebrow', text: `Round ${r.number}` }),
+        h('span', { class: 'current__eyebrow', text: `Round ${r.number}${hasSeasons() && seasonOfRound(r) ? ` · ${seasonOfRound(r).name}` : ''}` }),
         statusBadge(r)),
       h('span', { class: 'current__title', text: roundTitle(r) }),
       h('span', { class: 'current__sub', text: `${currentSummary(r)} · ${plural(r.entries, 'entry', 'entries')}` }),
@@ -616,16 +719,17 @@ function scrollToTabs() {
 const MAX_ROUND_COLUMNS = 10;
 
 function scoredRounds() {
-  return state.data.rounds.filter((r) => r.status !== 'upcoming' || r.id === state.data.current_round).slice(-MAX_ROUND_COLUMNS);
+  return scopeRounds().filter((r) => r.status !== 'upcoming' || r.id === state.data.current_round).slice(-MAX_ROUND_COLUMNS);
 }
 
 function renderStandings() {
   const view = $('#view-standings');
   const rounds = scoredRounds();
-  const latest = [...state.data.rounds].reverse().find((r) => r.status !== 'upcoming') || currentRound();
+  const latest = [...scopeRounds()].reverse().find((r) => r.status !== 'upcoming') || rounds[rounds.length - 1] || currentRound();
   const q = state.filter.trim().toLowerCase();
 
-  let rows = state.data.players;
+  const all = scopeList();
+  let rows = all;
   if (q) rows = rows.filter((p) => p.key.includes(q) || p.aliases.some((a) => a.toLowerCase().includes(q)));
   if (state.sort !== 'total') {
     rows = [...rows].sort((a, b) => ((b.rounds[state.sort] ?? -1) - (a.rounds[state.sort] ?? -1)) || a.rank - b.rank);
@@ -665,17 +769,20 @@ function renderStandings() {
   const toolbar = h('div', { class: 'toolbar' },
     h('label', { class: 'filter' },
       h('span', { class: 'sr-only', text: 'Filter players' }),
-      h('input', { type: 'search', placeholder: `Filter ${state.data.players.length} players`, value: state.filter, autocomplete: 'off',
+      h('input', { type: 'search', placeholder: `Filter ${all.length} players`, value: state.filter, autocomplete: 'off',
                    oninput: (e) => { state.filter = e.target.value; renderStandings(); } })),
-    state.me && state.players.has(state.me) ? h('button', { type: 'button', class: 'btn btn--ghost', onclick: jumpToMe, text: 'Find me' }) : null);
+    state.me && scopePlayer(state.me) ? h('button', { type: 'button', class: 'btn btn--ghost', onclick: jumpToMe, text: 'Find me' }) : null);
 
   const table = h('div', { class: 'table', role: 'table', 'aria-label': 'Overall standings', style: `--rounds:${rounds.length}` },
     head, body.length ? body : h('div', { class: 'empty', text: `No player matches “${state.filter}”` }));
 
-  if (view.firstChild && view.querySelector('.toolbar')) {
+  const summary = seasonSummary();
+  if (view.querySelector('.toolbar') && view.dataset.scope === state.scope) {
     view.querySelector('.table').replaceWith(table);
   } else {
-    view.replaceChildren(toolbar, table, h('p', { class: 'hint', text: 'Tap a round header to sort by it. Tap a name for picks and history.' }));
+    view.dataset.scope = state.scope;
+    view.replaceChildren(...[summary, toolbar, table,
+      h('p', { class: 'hint', text: 'Tap a round header to sort by it. Tap a name for picks and history.' })].filter(Boolean));
   }
 }
 
@@ -777,12 +884,15 @@ function stat(label, value) {
 
 function renderRounds() {
   const view = $('#view-rounds');
-  const r = roundById(state.roundId) || currentRound();
+  const inScope = scopeRounds();
+  const r = inScope.find((x) => x.id === state.roundId) || inScope.find((x) => x.id === state.data.current_round)
+    || inScope[inScope.length - 1] || currentRound();
+  state.roundId = r.id;
   const me = state.me && state.players.get(state.me);
   const myPicks = me ? picksFor(r.id, me.key) : null;
 
   const picker = h('div', { class: 'chips', role: 'listbox', 'aria-label': 'Choose a round' },
-    [...state.data.rounds].reverse().map((x) => h('button', {
+    [...inScope].reverse().map((x) => h('button', {
       type: 'button', role: 'option', class: `chip${x.id === r.id ? ' is-active' : ''}`, 'aria-selected': String(x.id === r.id),
       onclick: () => { state.roundId = x.id; renderRounds(); syncUrl(); },
     }, h('b', { text: roundShort(x) }), x.tag || '', x.status === 'live' ? h('span', { class: 'pulse' }) : null)));
@@ -797,7 +907,7 @@ function renderRounds() {
     picker,
     h('header', { class: 'round__head' },
       h('div', { class: 'round__titles' },
-        h('p', { class: 'round__eyebrow' }, `Round ${r.number}`, statusBadge(r)),
+        h('p', { class: 'round__eyebrow' }, `Round ${r.number}${hasSeasons() && seasonOfRound(r) ? ` · ${seasonOfRound(r).name}` : ''}`, statusBadge(r)),
         h('h2', { class: 'round__title', text: roundTitle(r) }),
         h('p', { class: 'round__sub', text: currentSummary(r) }),
         myLine),
@@ -840,8 +950,7 @@ function closePlayer({ push = true } = {}) {
   if (push) syncUrl();
 }
 
-function pointsChart(p) {
-  const rounds = state.data.rounds;
+function pointsChart(p, rounds) {
   const max = Math.max(10, ...rounds.map((r) => r.matches.length));
   return h('div', { class: 'chart', role: 'img', 'aria-label': rounds.map((r) => `${roundShort(r)}: ${r.id in p.rounds ? fmtPts(p.rounds[r.id]) : 'did not play'}`).join(', ') },
     rounds.map((r) => {
@@ -888,11 +997,21 @@ function playerRound(p, r, open) {
     })));
 }
 
-function renderPlayer(p) {
+function renderPlayer(identity) {
+  // Stats for the season being viewed; all-time if the player has no entries in it.
+  const inScope = scopePlayer(identity.key);
+  const scope = inScope ? state.scope : 'all';
+  const p = inScope || identity;
+  const rounds = scopeRounds(scope);
+  const total = scopeList(scope).length;
   const isMe = state.me === p.key;
   const best = p.best && roundById(p.best.round);
   const body = $('#sheet-body');
-  const roundsDesc = [...state.data.rounds].reverse();
+  const roundsDesc = [...rounds].reverse();
+  const scopeNote = !hasSeasons() ? null
+    : inScope ? h('p', { class: 'ph__scope' }, h('b', { text: scopeLabel(scope) }),
+        state.scope === 'all' ? null : [' · ', h('button', { type: 'button', class: 'link-btn', onclick: () => setScope('all'), text: 'see all-time' })])
+      : h('p', { class: 'ph__scope', text: `No entries in ${scopeLabel(state.scope)} yet · showing all-time` });
   const firstPlayed = roundsDesc.find((r) => picksFor(r.id, p.key));
 
   body.replaceChildren(
@@ -900,20 +1019,21 @@ function renderPlayer(p) {
       avatar(p.name, true),
       h('div', { class: 'ph__text' },
         h('h2', { id: 'sheet-title', class: 'ph__name', text: p.name }),
-        p.aliases.length ? h('p', { class: 'ph__aliases', text: `Also as ${p.aliases.filter((a) => a !== p.name).join(', ')}` }) : null),
+        p.aliases.length ? h('p', { class: 'ph__aliases', text: `Also as ${p.aliases.filter((a) => a !== p.name).join(', ')}` }) : null,
+        scopeNote),
       h('div', { class: 'ph__actions' },
         h('button', { type: 'button', class: 'icon-btn', onclick: () => sharePlayer(p), 'aria-label': 'Share profile link', title: 'Share' }, icon('share')),
         h('button', { type: 'button', class: 'icon-btn', onclick: () => closePlayer(), 'aria-label': 'Close', title: 'Close' }, icon('close')))),
     h('div', { class: 'ph__stats' },
-      h('div', { class: 'stat stat--hero' }, h('span', { class: 'stat__value' }, `#${p.rank}`, movement(p)), h('span', { class: 'stat__label', text: `of ${state.data.players.length}` })),
+      h('div', { class: 'stat stat--hero' }, h('span', { class: 'stat__value' }, `#${p.rank}`, movement(p)), h('span', { class: 'stat__label', text: `of ${total}` })),
       stat('Points', fmtPts(p.total)),
       stat('Accuracy', p.accuracy !== null ? `${p.accuracy}%` : '–'),
       stat('Best round', best ? `${fmtPts(p.best.points)} · ${roundShort(best)}` : '–')),
     h('button', { type: 'button', class: `btn btn--me${isMe ? ' is-me' : ''}`, 'aria-pressed': String(isMe),
-                  onclick: () => { setMe(isMe ? null : p.key); renderPlayer(p); } },
+                  onclick: () => { setMe(isMe ? null : p.key); renderPlayer(identity); } },
       icon(isMe ? 'check' : 'star', 'icon icon--sm'), isMe ? 'This is you' : 'This is me — pin to top'),
     h('h3', { class: 'section-title', text: 'Points per round' }),
-    pointsChart(p),
+    pointsChart(p, rounds),
     h('p', { class: 'hint', text: 'Line = round average. Faded bars are not confirmed by the organizer yet.' }),
     h('h3', { class: 'section-title', text: 'Picks' }),
     ...roundsDesc.map((r) => playerRound(p, r, r === firstPlayed)).filter(Boolean),
@@ -956,6 +1076,7 @@ function toast(message) {
 function syncUrl() {
   const url = new URL(location.href);
   url.search = '';
+  if (hasSeasons() && state.scope !== defaultScope()) url.searchParams.set('season', state.scope);
   if (state.view === 'rounds') url.searchParams.set('round', state.roundId);
   if (state.openPlayer) url.searchParams.set('player', state.players.get(state.openPlayer).name);
   if (url.href !== location.href) history.pushState(null, '', url);
@@ -964,6 +1085,13 @@ function syncUrl() {
 function applyUrl() {
   const params = new URLSearchParams(location.search);
   const round = params.get('round');
+  let scope = params.get('season') || defaultScope();
+  // A link to a round always shows it, whichever season it belongs to.
+  if (round && roundById(round) && scope !== 'all' && !scopeRounds(scope).some((r) => r.id === round)) {
+    const season = seasonOfRound(roundById(round));
+    scope = season ? season.id : 'all';
+  }
+  if (scope !== state.scope) setScope(scope, { push: false });
   if (round && state.data && roundById(round)) {
     state.roundId = round;
     setView('rounds', { push: false });
@@ -988,6 +1116,7 @@ let firstRender = true;
 
 function renderAll() {
   renderBanner();
+  renderScope();
   renderMe();
   renderCurrent();
   renderStandings();

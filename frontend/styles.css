@@ -233,6 +233,26 @@ main { padding-top: 16px; padding-bottom: 32px; }
 .dot--live { background: var(--live); border-color: transparent; animation: blink 1.4s ease-in-out infinite; }
 .dot--postponed, .dot--void { background: var(--bad-soft); }
 
+/* ------------------------------------------------------------------ season switcher */
+.scope { display: flex; gap: 8px; overflow-x: auto; padding: 2px 16px 12px; margin: 0 -16px; scrollbar-width: none; }
+.scope::-webkit-scrollbar { display: none; }
+.scope__btn {
+  display: grid; flex: 1 0 auto; min-width: 104px; padding: 8px 14px; text-align: left; cursor: pointer;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.scope__name { font-weight: 700; color: var(--text); white-space: nowrap; }
+.scope__sub { font-size: 12px; white-space: nowrap; }
+.scope__btn.is-active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.scope__btn.is-active .scope__sub { color: var(--text); }
+
+.season-card { display: grid; gap: 2px; margin-bottom: 12px; padding: 14px 16px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); }
+.season-card__eyebrow { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.season-card__title { font-size: 18px; font-weight: 780; letter-spacing: -.01em; }
+.season-card__sub { color: var(--muted); font-size: 14px; }
+.link-btn { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.ph__scope { margin-top: 2px; color: var(--muted); font-size: 13px; }
+.ph__scope b { color: var(--text); }
+
 /* ------------------------------------------------------------------ tabs */
 .tabs {
   position: sticky; top: calc(56px + env(safe-area-inset-top)); z-index: 10;

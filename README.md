@@ -9,7 +9,8 @@ and shows standings, every round's fixtures and picks, and live scores for the r
 - **Rounds**: fixtures with results, how the league picked (1 / X / 2), round table with everyone's picks.
 - **Player profile**: points chart against the round average, all picks with how many others made the same call.
 - **"This is me"**: pin your name once and it is highlighted everywhere (stored in your browser only).
-- Shareable links: `/?player=sockodile`, `/?round=r6`.
+- **Seasons**: the table restarts when the organizer says so; past seasons stay browsable with their final standings, next to an all-time table.
+- Shareable links: `/?player=sockodile`, `/?round=r6`, `/?season=s1`.
 
 ## Run it
 
@@ -42,6 +43,14 @@ Rounds after the last results row are handled like this:
 3. A finished round whose results row is missing is shown as **Awaiting results**. It uses the
    organizer's points from column O and the fixture names the site saved while the round was open.
 
+### Seasons
+
+The organizer resets the table from time to time. A new season starts at the round whose tag carries a
+marker, `PL MD6 (S2)` (also `PL MD6 S2` or `PL MD6 (Season 2)`), or at the first round after a note such
+as `Season 2 starts here` anywhere in the tag column. Later rounds stay in that season until the next
+marker. The site then offers the current season, each past season with its final table, and an all-time
+table; the round numbers keep counting across seasons. Links: `/?season=s1`, `/?season=all`.
+
 If the sheet and the results row ever disagree, column O wins, so manual corrections are respected.
 Usernames are merged case-insensitively, and a leading `u/` is ignored.
 
@@ -49,7 +58,7 @@ Usernames are merged case-insensitively, and a leading `u/` is ignored.
 
 | Endpoint | |
 |---|---|
-| `GET /api/league` | Rounds (matches, results, pick distribution), players (totals, per-round points, rank, movement), compact picks |
+| `GET /api/league` | Rounds (matches, results, pick distribution, season), `players` (all-time totals, per-round points, rank, movement), `seasons` (each with its own `players` table), compact picks |
 | `GET /api/players/{name}` | One player with every pick and whether it was right |
 | `POST /api/refresh` | Re-read the sheet now (at most once per 20 s) |
 | `GET /api/health` | Liveness plus the running build: `{"ok": true, "version": "2.1", "commit": "<git sha>", "build": "2.1+<sha>", "started_at": ..., "uptime_seconds": ...}` |

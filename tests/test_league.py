@@ -352,3 +352,90 @@ def test_espn_is_queried_by_month_with_range_fallback():
     calls.clear()
     Fake(True)._fetch("eng.1", datetime(2026, 9, 28), datetime(2026, 10, 3))
     assert "dates=20260928-20261003" in calls[-1]
+
+
+# ---------------------------------------------------------------- seasons (sheet as of 14 Oct 2026)
+
+FIXTURE_S2 = os.path.join(os.path.dirname(__file__), "fixtures", "sheet_2026-10-14.xlsx")
+
+
+@pytest.fixture()
+def grid_s2():
+    with open(FIXTURE_S2, "rb") as f:
+        return parse_form_grid(f.read())
+
+
+def test_split_season():
+    from backend.league import split_season
+
+    assert split_season("PL MD6 (S2)") == ("PL MD6", 2)
+    assert split_season("PL MD6 S2") == ("PL MD6", 2)
+    assert split_season("PL MD6 (Season 3)") == ("PL MD6", 3)
+    assert split_season("UCL MD2") == ("UCL MD2", None)
+    assert split_season("LC R3") == ("LC R3", None)
+
+
+def test_season_tag_does_not_hide_the_round(grid_s2):
+    """Regression: "PL MD6 (S2)" was not recognised as a results row, so the round lost its fixtures."""
+    league = build_league(grid_s2, live=no_live)
+    r9 = by_id(league, "r9")
+    assert (r9["tag"], r9["status"], r9["season"]) == ("PL MD6", "final", 2)
+    assert r9["matches"][0]["title"] == "Arsenal vs Leeds"
+    assert r9["stage"] == "Matchday 6"
+    assert league["warnings"] == []
+
+
+def test_rounds_are_grouped_into_seasons(grid_s2):
+    league = build_league(grid_s2, live=no_live)
+    assert [r["season"] for r in league["rounds"]] == [1] * 8 + [2, 2]
+    s1, s2 = league["seasons"]
+    assert s1["rounds"] == [f"r{i}" for i in range(1, 9)] and not s1["current"]
+    assert s2["rounds"] == ["r9", "r10"] and s2["current"]
+    assert league["current_season"] == "s2"
+    assert by_id(league, "r10")["tag"] == "UCL MD2"  # a later round without a marker stays in season 2
+
+
+def test_each_season_has_its_own_table(grid_s2):
+    league = build_league(grid_s2, live=no_live)
+    s1, s2 = league["seasons"]
+    table = lambda season, key: next(p for p in season["players"] if p["key"] == key)
+
+    assert s1["players"][0]["name"] == "f4lcon" and s1["players"][0]["total"] == 44
+    lam1, lam2 = table(s1, "loveandmonsters"), table(s2, "loveandmonsters")
+    assert lam1["total"] == 41 and lam2["total"] == 7
+    assert set(lam2["rounds"]) == {"r9", "r10"}
+    assert player(league, "loveandmonsters")["total"] == 48  # all-time keeps adding up
+    # season 2 starts from zero: only people who entered it are listed
+    assert len(s2["players"]) < len(s1["players"])
+    assert all(set(p["rounds"]) <= {"r9", "r10"} for p in s2["players"])
+
+
+def test_no_rank_movement_after_the_first_round_of_a_season(grid_s2):
+    league = build_league(grid_s2, live=no_live)
+    assert all(p["movement"] is None for p in league["seasons"][1]["players"])
+    assert any(p["movement"] for p in league["seasons"][0]["players"])
+
+
+def test_season_can_be_declared_by_a_note_or_by_the_tag_alone(grid_s2):
+    only_note = copy.deepcopy(grid_s2)
+    only_note[310]["AA"] = "PL MD6"                      # no (S2), just "Season 2 starts here" above
+    assert [r["season"] for r in build_league(only_note, live=no_live)["rounds"]] == [1] * 8 + [2, 2]
+
+    only_tag = copy.deepcopy(grid_s2)
+    del only_tag[309]["AA"]                              # no note, just "PL MD6 (S2)"
+    assert [r["season"] for r in build_league(only_tag, live=no_live)["rounds"]] == [1] * 8 + [2, 2]
+
+    neither = copy.deepcopy(only_note)
+    del neither[309]["AA"]
+    league = build_league(neither, live=no_live)
+    assert [r["season"] for r in league["rounds"]] == [1] * 10 and len(league["seasons"]) == 1
+
+
+def test_season_marker_in_the_open_form_starts_a_season(grid):
+    g = copy.deepcopy(grid)
+    for col in MATCH_COLS:
+        g[1][col] = g[1][col].replace("LC R3", "LC R3 (S2)")
+    league = build_league(g, live=no_live)
+    r7 = by_id(league, "r7")
+    assert (r7["tag"], r7["season"], r7["status"]) == ("LC R3", 2, "upcoming")
+    assert league["current_season"] == "s2"
