@@ -226,6 +226,21 @@ def split_unmarked(entries: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
     return segments
 
 
+LATE_ENTRY_LIMIT = 3  # a handful of stragglers, never a whole round
+
+
+def is_late_for(part: List[Dict[str, Any]], outcomes: List[Optional[str]]) -> bool:
+    """True if every row is already scored by the organizer, and scored against these results."""
+    if not part or len(part) > LATE_ENTRY_LIMIT or not any(outcomes):
+        return False
+    for e in part:
+        if e["sheet_points"] is None:
+            return False
+        if e["sheet_points"] != sum(1 for p, o in zip(e["picks"], outcomes) if p and o and p == o):
+            return False
+    return True
+
+
 # ---------------------------------------------------------------- builder
 
 def dedupe_latest(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -262,6 +277,12 @@ def build_league(
             seg = [e for e in entries if (e["row"] >= m or (i == 0 and e["row"] < m)) and (upper is None or e["row"] < upper)]
             if upper is None:
                 parts = split_unmarked(seg)
+                # Late entries (e.g. someone picking only the Monday game) can arrive days after the
+                # rest of the round. If the organizer already scored them against this round's
+                # results, they belong to it rather than starting a new round.
+                outcomes = [parse_result(grid[m].get(c, ""))["outcome"] for c in layout.result_cols]
+                while len(parts) > 1 and is_late_for(parts[1], outcomes):
+                    parts[0] = parts[0] + parts.pop(1)
                 segments.append({"entries": parts[0], "marker": m})
                 segments.extend({"entries": p, "marker": None} for p in parts[1:])
             else:

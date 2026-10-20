@@ -439,3 +439,36 @@ def test_season_marker_in_the_open_form_starts_a_season(grid):
     r7 = by_id(league, "r7")
     assert (r7["tag"], r7["season"], r7["status"]) == ("LC R3", 2, "upcoming")
     assert league["current_season"] == "s2"
+
+
+# ---------------------------------------------------------------- late entries (sheet as of 20 Oct 2026)
+
+FIXTURE_LATE = os.path.join(os.path.dirname(__file__), "fixtures", "sheet_2026-10-20.xlsx")
+
+
+@pytest.fixture()
+def grid_late():
+    with open(FIXTURE_LATE, "rb") as f:
+        return parse_form_grid(f.read())
+
+
+def test_late_single_pick_stays_in_its_round(grid_late):
+    """aeceus picked only the Monday game of PL MD7, two days after everyone else.
+    That row used to become a phantom 'Round 12' with one entry."""
+    league = build_league(grid_late, live=no_live)
+    tags = [r["tag"] for r in league["rounds"]]
+    assert tags[-3:] == ["UCL MD2", "PL MD7", "UCL MD3"]
+    assert all(r["status"] != "awaiting" for r in league["rounds"])
+    pl_md7 = next(r for r in league["rounds"] if r["tag"] == "PL MD7")
+    assert player(league, "aeceus")["rounds"][pl_md7["id"]] == 0
+    assert league["current_round"] == league["rounds"][-1]["id"]
+    assert league["warnings"] == []
+
+
+def test_late_row_that_does_not_fit_the_results_is_not_absorbed(grid_late):
+    g = copy.deepcopy(grid_late)
+    late = next(r for r, row in g.items() if str(row.get("B", "")).strip().lower() == "aeceus"
+                and row.get("O") == 0 and r > 350)
+    g[late]["O"] = 5  # organizer's points don't match PL MD7's results: not a late PL MD7 entry
+    league = build_league(g, live=no_live)
+    assert any(r["status"] == "awaiting" for r in league["rounds"])
